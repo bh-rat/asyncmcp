@@ -12,6 +12,8 @@
 
 A regular MCP Server but working over queues :
 
+https://github.com/user-attachments/assets/4b775ff8-02ae-4730-a822-3e1cedf9d744
+
 
 Quoting from the [official description](https://modelcontextprotocol.io/introduction) :<br/> 
 > MCP is an open protocol that standardizes how applications provide context to LLMs.
