@@ -39,7 +39,7 @@ class TestClientServerIntegration:
             async with anyio.create_task_group() as tg:
 
                 async def run_client():
-                    async with sns_sqs_client(client_cfg["config"]) as (read_stream, write_stream):
+                    async with sns_sqs_client(client_cfg["config"], client_cfg["sqs_client"], client_cfg["sns_client"]) as (read_stream, write_stream):
                         # Send request - this should trigger SNS publish
                         request = JSONRPCMessage(
                             root=JSONRPCRequest(jsonrpc="2.0", id=1, method="test/process", params={"data": "test"})
@@ -48,7 +48,7 @@ class TestClientServerIntegration:
                         await anyio.sleep(0.05)
 
                 async def run_server():
-                    async with sns_sqs_server(server_cfg["config"]) as (read_stream, write_stream):
+                    async with sns_sqs_server(server_cfg["config"], server_cfg["sqs_client"], server_cfg["sns_client"]) as (read_stream, write_stream):
                         # Send response - this should also trigger SNS publish
                         response = JSONRPCMessage(
                             root=JSONRPCResponse(jsonrpc="2.0", id=1, result={"processed": True, "status": "success"})
@@ -83,7 +83,7 @@ class TestClientServerIntegration:
             async with anyio.create_task_group() as tg:
 
                 async def run_client():
-                    async with sns_sqs_client(client_cfg["config"]) as (read_stream, write_stream):
+                    async with sns_sqs_client(client_cfg["config"], client_cfg["sqs_client"], client_cfg["sns_client"]) as (read_stream, write_stream):
                         # Send notification
                         notification = JSONRPCMessage(
                             root=JSONRPCNotification(
@@ -94,7 +94,7 @@ class TestClientServerIntegration:
                         await anyio.sleep(0.05)
 
                 async def run_server():
-                    async with sns_sqs_server(server_cfg["config"]) as (read_stream, write_stream):
+                    async with sns_sqs_server(server_cfg["config"], server_cfg["sqs_client"], server_cfg["sns_client"]) as (read_stream, write_stream):
                         await anyio.sleep(0.02)
 
                 tg.start_soon(run_client)
@@ -123,7 +123,7 @@ class TestClientServerIntegration:
             async with anyio.create_task_group() as tg:
 
                 async def run_client():
-                    async with sns_sqs_client(client_cfg["config"]) as (read_stream, write_stream):
+                    async with sns_sqs_client(client_cfg["config"], client_cfg["sqs_client"], client_cfg["sns_client"]) as (read_stream, write_stream):
                         # Send request for unknown method
                         request = JSONRPCMessage(
                             root=JSONRPCRequest(jsonrpc="2.0", id=1, method="unknown/method", params={})
@@ -132,7 +132,7 @@ class TestClientServerIntegration:
                         await anyio.sleep(0.05)
 
                 async def run_server():
-                    async with sns_sqs_server(server_cfg["config"]) as (read_stream, write_stream):
+                    async with sns_sqs_server(server_cfg["config"], server_cfg["sqs_client"], server_cfg["sns_client"]) as (read_stream, write_stream):
                         # Send proper error response
                         from mcp.types import JSONRPCError
 
@@ -168,7 +168,7 @@ class TestClientServerIntegration:
             async with anyio.create_task_group() as tg:
 
                 async def run_client():
-                    async with sns_sqs_client(client_cfg["config"]) as (read_stream, write_stream):
+                    async with sns_sqs_client(client_cfg["config"], client_cfg["sqs_client"], client_cfg["sns_client"]) as (read_stream, write_stream):
                         # Send multiple requests
                         for i in range(3):
                             request = JSONRPCMessage(
@@ -179,7 +179,7 @@ class TestClientServerIntegration:
                         await anyio.sleep(0.1)
 
                 async def run_server():
-                    async with sns_sqs_server(server_cfg["config"]) as (read_stream, write_stream):
+                    async with sns_sqs_server(server_cfg["config"], server_cfg["sqs_client"], server_cfg["sns_client"]) as (read_stream, write_stream):
                         # Send multiple responses
                         for i in range(3):
                             response = JSONRPCMessage(
@@ -219,7 +219,7 @@ class TestClientServerIntegration:
             async with anyio.create_task_group() as tg:
 
                 async def run_client():
-                    async with sns_sqs_client(client_cfg["config"]) as (read_stream, write_stream):
+                    async with sns_sqs_client(client_cfg["config"], client_cfg["sqs_client"], client_cfg["sns_client"]) as (read_stream, write_stream):
                         # Send request with metadata context
                         request = JSONRPCMessage(
                             root=JSONRPCRequest(jsonrpc="2.0", id=1, method="meta/test", params={"data": "test"})
@@ -230,7 +230,7 @@ class TestClientServerIntegration:
                         await anyio.sleep(0.05)
 
                 async def run_server():
-                    async with sns_sqs_server(server_cfg["config"]) as (read_stream, write_stream):
+                    async with sns_sqs_server(server_cfg["config"], server_cfg["sqs_client"], server_cfg["sns_client"]) as (read_stream, write_stream):
                         # Send response with metadata
                         response = JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=1, result={"success": True}))
                         session_msg = SessionMessage(response, metadata={"server_id": "test-server"})
@@ -275,8 +275,8 @@ class TestConcurrentClientServer:
             with patch("anyio.to_thread.run_sync") as mock_run_sync:
                 mock_run_sync.return_value = {"Messages": []}
 
-                async with sns_sqs_client(client_cfg["config"]) as (read_stream, write_stream):
+                async with sns_sqs_client(client_cfg["config"], client_cfg["sqs_client"], client_cfg["sns_client"]) as (read_stream, write_stream):
                     await anyio.sleep(0.01)
 
-                async with sns_sqs_server(server_cfg["config"]) as (read_stream, write_stream):
+                async with sns_sqs_server(server_cfg["config"], server_cfg["sqs_client"], server_cfg["sns_client"]) as (read_stream, write_stream):
                     await anyio.sleep(0.01)

@@ -3,7 +3,7 @@
 Shared utilities for local CLI testing
 """
 
-import asyncio
+import anyio
 import boto3
 import json
 import logging
@@ -37,7 +37,7 @@ RESOURCES = {
 
 # Common MCP configuration
 DEFAULT_INIT_PARAMS = {
-    "protocolVersion": "2024-11-05",
+    "protocolVersion": "2025‑06‑18",
     "capabilities": {"roots": {"listChanged": True}},
     "clientInfo": {"name": "mcp-client", "version": "1.0.0"},
 }
@@ -85,36 +85,36 @@ def print_json(data: Dict[str, Any], title: str = ""):
 
 def create_client_transport_config(
     client_id: str = "mcp-client", timeout: Optional[float] = None
-) -> SnsSqsTransportConfig:
+) -> tuple[SnsSqsTransportConfig, Any, Any]:
     """Create a standard client transport configuration"""
     sqs_client, sns_client = setup_aws_clients()
 
-    return SnsSqsTransportConfig(
+    config = SnsSqsTransportConfig(
         sqs_queue_url=RESOURCES["client_response_queue"],
         sns_topic_arn=RESOURCES["client_request_topic"],
-        sqs_client=sqs_client,
-        sns_client=sns_client,
         max_messages=1,
         wait_time_seconds=5,
         poll_interval_seconds=2.0,
         client_id=client_id,
         transport_timeout_seconds=timeout,
     )
+    
+    return config, sqs_client, sns_client
 
 
-def create_server_transport_config() -> SnsSqsTransportConfig:
+def create_server_transport_config() -> tuple[SnsSqsTransportConfig, Any, Any]:
     """Create a standard server transport configuration"""
     sqs_client, sns_client = setup_aws_clients()
 
-    return SnsSqsTransportConfig(
+    config = SnsSqsTransportConfig(
         sqs_queue_url=RESOURCES["server_request_queue"],
         sns_topic_arn=RESOURCES["server_response_topic"],
-        sqs_client=sqs_client,
-        sns_client=sns_client,
         max_messages=10,
         wait_time_seconds=5,
         poll_interval_seconds=1.0,
     )
+    
+    return config, sqs_client, sns_client
 
 
 async def send_mcp_request(write_stream, method: str, params: dict = None, request_id: int = 1) -> SessionMessage:
@@ -128,7 +128,7 @@ async def send_mcp_request(write_stream, method: str, params: dict = None, reque
     await write_stream.send(session_message)
 
     # allowing messages to flush
-    await asyncio.sleep(2)
+    await anyio.sleep(2)
 
     return session_message
 
@@ -136,15 +136,21 @@ async def send_mcp_request(write_stream, method: str, params: dict = None, reque
 async def wait_for_response(read_stream, timeout: float = 500.0):
     """Wait for a response from the stream"""
     try:
-        response = await asyncio.wait_for(read_stream.receive(), timeout=timeout)
+        with anyio.move_on_after(timeout) as cancel_scope:
+            response = await read_stream.receive()
 
-        if isinstance(response, Exception):
-            print_colored(f"❌ Exception: {response}", "red")
+            if isinstance(response, Exception):
+                print_colored(f"❌ Exception: {response}", "red")
+                return None
+
+            return response
+
+        if cancel_scope.cancelled_caught:
+            print_colored(f"⏰ Request timeout ({timeout}s)", "red")
             return None
 
-        return response
-    except asyncio.TimeoutError:
-        print_colored(f"⏰ Request timeout ({timeout}s)", "red")
+    except Exception as e:
+        print_colored(f"❌ Error waiting for response: {e}", "red")
         return None
 
 

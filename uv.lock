@@ -37,13 +37,12 @@ wheels = [
 
 [[package]]
 name = "asyncmcp"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
     { name = "boto3" },
     { name = "mcp" },
-    { name = "mypy" },
     { name = "orjson" },
 ]
 
@@ -66,6 +65,7 @@ rich = [
 dev = [
     { name = "inline-snapshot" },
     { name = "localstack" },
+    { name = "mypy" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -90,7 +90,6 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.38.36,<2.0.0" },
     { name = "localstack", marker = "extra == 'dev'", specifier = ">=4.5.0,<5.0.0" },
     { name = "mcp", specifier = ">=1.9.4,<2.0.0" },
-    { name = "mypy", specifier = ">=1.16.1" },
     { name = "orjson", specifier = ">=3.10.0,<4.0.0" },
     { name = "python-dotenv", marker = "extra == 'cli'", specifier = ">=1.0.0" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.9.4" },
@@ -102,6 +101,7 @@ provides-extras = ["rich", "cli", "aws", "dev"]
 dev = [
     { name = "inline-snapshot", specifier = ">=0.23.2" },
     { name = "localstack", specifier = ">=4.5.0" },
+    { name = "mypy", specifier = ">=1.16.1" },
     { name = "pyright", specifier = ">=1.1.391" },
     { name = "pytest", specifier = ">=8.3.4" },
     { name = "pytest-asyncio", specifier = ">=0.21.0" },

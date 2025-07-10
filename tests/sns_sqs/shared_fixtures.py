@@ -69,13 +69,11 @@ def sample_sns_wrapped_message():
 
 
 @pytest.fixture
-def client_transport_config(mock_sqs_client, mock_sns_client):
+def client_transport_config():
     """Create a test client transport configuration."""
     return SnsSqsTransportConfig(
         sqs_queue_url="http://localhost:4566/000000000000/client-queue",
         sns_topic_arn="arn:aws:sns:us-east-1:000000000000/client-topic",
-        sqs_client=mock_sqs_client,
-        sns_client=mock_sns_client,
         max_messages=5,
         wait_time_seconds=1,
         poll_interval_seconds=0.01,  # Faster polling for tests
@@ -85,13 +83,11 @@ def client_transport_config(mock_sqs_client, mock_sns_client):
 
 
 @pytest.fixture
-def server_transport_config(mock_sqs_client, mock_sns_client):
+def server_transport_config():
     """Create a test server transport configuration."""
     return SnsSqsTransportConfig(
         sqs_queue_url="http://localhost:4566/000000000000/server-queue",
         sns_topic_arn="arn:aws:sns:us-east-1:000000000000/server-topic",
-        sqs_client=mock_sqs_client,
-        sns_client=mock_sns_client,
         max_messages=5,
         wait_time_seconds=1,
         poll_interval_seconds=0.01,  # Faster polling for tests
@@ -99,7 +95,7 @@ def server_transport_config(mock_sqs_client, mock_sns_client):
 
 
 @pytest.fixture
-def client_server_config():
+def client_server_config(mock_sqs_client, mock_sns_client):
     """Create client and server configurations for integration testing."""
     mock_client_sqs = MagicMock()
     mock_client_sns = MagicMock()
@@ -109,8 +105,6 @@ def client_server_config():
     client_config = SnsSqsTransportConfig(
         sqs_queue_url="http://localhost:4566/000000000000/client-responses",
         sns_topic_arn="arn:aws:sns:us-east-1:000000000000/server-requests",
-        sqs_client=mock_client_sqs,
-        sns_client=mock_client_sns,
         max_messages=5,
         wait_time_seconds=1,
         poll_interval_seconds=0.01,  # Faster polling for tests
@@ -120,8 +114,6 @@ def client_server_config():
     server_config = SnsSqsTransportConfig(
         sqs_queue_url="http://localhost:4566/000000000000/server-requests",
         sns_topic_arn="arn:aws:sns:us-east-1:000000000000/client-responses",
-        sqs_client=mock_server_sqs,
-        sns_client=mock_server_sns,
         max_messages=5,
         wait_time_seconds=1,
         poll_interval_seconds=0.01,  # Faster polling for tests

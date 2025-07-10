@@ -32,7 +32,7 @@ async def _create_sns_message_attributes(
 
 
 @asynccontextmanager
-async def sns_sqs_server(config: SnsSqsTransportConfig):
+async def sns_sqs_server(config: SnsSqsTransportConfig, sqs_client: Any, sns_client: Any):
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
@@ -45,7 +45,7 @@ async def sns_sqs_server(config: SnsSqsTransportConfig):
         async with read_stream_writer:
             while True:
                 response = await anyio.to_thread.run_sync(
-                    lambda: config.sqs_client.receive_message(
+                    lambda: sqs_client.receive_message(
                         QueueUrl=config.sqs_queue_url,
                         MaxNumberOfMessages=config.max_messages,
                         WaitTimeSeconds=config.wait_time_seconds,
@@ -56,7 +56,7 @@ async def sns_sqs_server(config: SnsSqsTransportConfig):
 
                 messages = response.get("Messages", [])
                 if messages:
-                    await process_sqs_message(messages, config, read_stream_writer)
+                    await process_sqs_message(messages, sqs_client, config, read_stream_writer)
                 else:
                     await anyio.sleep(config.poll_interval_seconds)
 
@@ -68,7 +68,7 @@ async def sns_sqs_server(config: SnsSqsTransportConfig):
                     message_attributes = await _create_sns_message_attributes(session_message, config)
 
                     await anyio.to_thread.run_sync(
-                        lambda: config.sns_client.publish(
+                        lambda: sns_client.publish(
                             TopicArn=config.sns_topic_arn, Message=json_message, MessageAttributes=message_attributes
                         )
                     )

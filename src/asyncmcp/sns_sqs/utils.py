@@ -15,8 +15,6 @@ from mcp.shared.message import SessionMessage
 class SnsSqsTransportConfig:
     sqs_queue_url: str
     sns_topic_arn: str
-    sqs_client: Any  # TODO : quick hack for localstack, move sqs_client out of config
-    sns_client: Any  # TODO : quick hack for localstack, move sqs_client out of config
     max_messages: int = 10
     wait_time_seconds: int = 20
     visibility_timeout_seconds: int = 30
@@ -48,6 +46,7 @@ async def _delete_sqs_message(sqs_client: Any, queue_url: str, receipt_handle: s
 
 async def process_sqs_message(
     messages: list[Dict[str, Any]],
+    sqs_client: Any,
     config: SnsSqsTransportConfig,
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception],
 ) -> None:
@@ -55,12 +54,12 @@ async def process_sqs_message(
         try:
             session_message = await _to_session_message(sqs_message)
             await read_stream_writer.send(session_message)
-            await _delete_sqs_message(config.sqs_client, config.sqs_queue_url, sqs_message["ReceiptHandle"])
+            await _delete_sqs_message(sqs_client, config.sqs_queue_url, sqs_message["ReceiptHandle"])
 
         except (ValidationError, orjson.JSONDecodeError) as exc:
             await read_stream_writer.send(exc)
             # Delete invalid messages to prevent reprocessing
-            await _delete_sqs_message(config.sqs_client, config.sqs_queue_url, sqs_message["ReceiptHandle"])
+            await _delete_sqs_message(sqs_client, config.sqs_queue_url, sqs_message["ReceiptHandle"])
 
         except Exception as exc:
             await read_stream_writer.send(exc)

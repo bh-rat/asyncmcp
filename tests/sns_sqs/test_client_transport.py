@@ -92,7 +92,7 @@ class TestSQSMessageProcessor:
     """Test the process_sqs_message function."""
 
     @pytest.mark.anyio
-    async def test_process_multiple_messages(self, transport_config, sample_sqs_message):
+    async def test_process_multiple_messages(self, transport_config, sample_sqs_message, mock_sqs_client):
         """Test processing multiple messages concurrently."""
         messages = [sample_sqs_message.copy() for _ in range(3)]
         for i, msg in enumerate(messages):
@@ -109,14 +109,14 @@ class TestSQSMessageProcessor:
                 JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="test"))
             )
 
-            await process_sqs_message(messages, transport_config, send_stream)
+            await process_sqs_message(messages, mock_sqs_client, transport_config, send_stream)
 
             # Should have processed all messages
             assert mock_process.call_count == 3
             assert mock_delete.call_count == 3
 
     @pytest.mark.anyio
-    async def test_process_messages_with_errors(self, transport_config, sample_sqs_message):
+    async def test_process_messages_with_errors(self, transport_config, sample_sqs_message, mock_sqs_client):
         """Test processing messages when some fail."""
         messages = [sample_sqs_message.copy() for _ in range(2)]
         messages[0]["MessageId"] = "good-msg"
@@ -134,7 +134,7 @@ class TestSQSMessageProcessor:
                 ValidationError.from_exception_data("test", []),
             ]
 
-            await process_sqs_message(messages, transport_config, send_stream)
+            await process_sqs_message(messages, mock_sqs_client, transport_config, send_stream)
 
             # Both messages should be processed and deleted (even the failed one)
             assert mock_process.call_count == 2
@@ -184,7 +184,7 @@ class TestSQSSNSClient:
     """Test the main sns_sqs_client context manager."""
 
     @pytest.mark.anyio
-    async def test_context_manager_basic(self, transport_config):
+    async def test_context_manager_basic(self, transport_config, mock_sqs_client, mock_sns_client):
         """Test basic context manager functionality."""
         with patch("anyio.to_thread.run_sync") as mock_run_sync:
             # Mock empty SQS response to prevent infinite loop
@@ -192,14 +192,14 @@ class TestSQSSNSClient:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.1):
-                async with sns_sqs_client(transport_config) as (read_stream, write_stream):
+                async with sns_sqs_client(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
                     assert read_stream is not None
                     assert write_stream is not None
                     # Brief delay to let background tasks start
                     await anyio.sleep(0.01)
 
     @pytest.mark.anyio
-    async def test_send_and_receive_messages(self, transport_config, sample_jsonrpc_request):
+    async def test_send_and_receive_messages(self, transport_config, sample_jsonrpc_request, mock_sqs_client, mock_sns_client):
         """Test sending and receiving messages through the transport."""
         with patch("anyio.to_thread.run_sync") as mock_run_sync:
             # Track call count to prevent infinite loop
@@ -236,7 +236,7 @@ class TestSQSSNSClient:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.5):
-                async with sns_sqs_client(transport_config) as (read_stream, write_stream):
+                async with sns_sqs_client(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
                     # Send a message
                     session_message = SessionMessage(sample_jsonrpc_request)
                     await write_stream.send(session_message)
@@ -245,7 +245,7 @@ class TestSQSSNSClient:
                     await anyio.sleep(0.05)
 
     @pytest.mark.anyio
-    async def test_timeout_handling(self, transport_config):
+    async def test_timeout_handling(self, transport_config, mock_sqs_client, mock_sns_client):
         """Test transport with timeout configuration."""
         transport_config.transport_timeout_seconds = 0.1
 
@@ -255,11 +255,11 @@ class TestSQSSNSClient:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.2):
-                async with sns_sqs_client(transport_config) as (read_stream, write_stream):
+                async with sns_sqs_client(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
                     await anyio.sleep(0.05)
 
     @pytest.mark.anyio
-    async def test_error_handling_in_sqs_reader(self, transport_config):
+    async def test_error_handling_in_sqs_reader(self, transport_config, mock_sqs_client, mock_sns_client):
         """Test error handling in SQS reader."""
         with patch("anyio.to_thread.run_sync") as mock_run_sync:
             # Mock SQS exception on first call, then return empty messages
@@ -284,7 +284,7 @@ class TestSQSSNSClient:
             with anyio.move_on_after(0.1):
                 # The client should handle the error gracefully without crashing
                 try:
-                    async with sns_sqs_client(transport_config) as (read_stream, write_stream):
+                    async with sns_sqs_client(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
                         # Should handle the error gracefully
                         await anyio.sleep(0.05)
                 except Exception:
@@ -292,7 +292,7 @@ class TestSQSSNSClient:
                     pass
 
     @pytest.mark.anyio
-    async def test_error_handling_in_sns_writer(self, transport_config, sample_jsonrpc_request):
+    async def test_error_handling_in_sns_writer(self, transport_config, sample_jsonrpc_request, mock_sqs_client, mock_sns_client):
         """Test error handling in SNS writer."""
         with patch("anyio.to_thread.run_sync") as mock_run_sync:
             # Mock empty SQS response for reader
@@ -308,7 +308,7 @@ class TestSQSSNSClient:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.1):
-                async with sns_sqs_client(transport_config) as (read_stream, write_stream):
+                async with sns_sqs_client(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
                     # Send message that will cause SNS error
                     session_message = SessionMessage(sample_jsonrpc_request)
                     await write_stream.send(session_message)
@@ -317,7 +317,7 @@ class TestSQSSNSClient:
                     await anyio.sleep(0.05)
 
     @pytest.mark.anyio
-    async def test_concurrent_message_processing(self, transport_config):
+    async def test_concurrent_message_processing(self, transport_config, mock_sqs_client, mock_sns_client):
         """Test that multiple messages are processed concurrently."""
         with patch("anyio.to_thread.run_sync") as mock_run_sync:
             call_count = 0
@@ -351,12 +351,12 @@ class TestSQSSNSClient:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.2):
-                async with sns_sqs_client(transport_config) as (read_stream, write_stream):
+                async with sns_sqs_client(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
                     # Give time for message processing
                     await anyio.sleep(0.1)
 
     @pytest.mark.anyio
-    async def test_stream_cleanup(self, transport_config):
+    async def test_stream_cleanup(self, transport_config, mock_sqs_client, mock_sns_client):
         """Test proper cleanup of streams."""
         read_stream = None
         write_stream = None
@@ -366,7 +366,7 @@ class TestSQSSNSClient:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.1):
-                async with sns_sqs_client(transport_config) as (rs, ws):
+                async with sns_sqs_client(transport_config, mock_sqs_client, mock_sns_client) as (rs, ws):
                     read_stream = rs
                     write_stream = ws
 
@@ -414,7 +414,7 @@ class TestIntegrationScenarios:
     """Integration test scenarios."""
 
     @pytest.mark.anyio
-    async def test_full_message_roundtrip(self, transport_config):
+    async def test_full_message_roundtrip(self, transport_config, mock_sqs_client, mock_sns_client):
         """Test a complete message send/receive cycle."""
         with patch("anyio.to_thread.run_sync") as mock_run_sync:
             sent_messages = []
@@ -451,7 +451,7 @@ class TestIntegrationScenarios:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.5):
-                async with sns_sqs_client(transport_config) as (read_stream, write_stream):
+                async with sns_sqs_client(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
                     # Send a request
                     request = JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="test", params={}))
                     await write_stream.send(SessionMessage(request))
@@ -464,7 +464,7 @@ class TestIntegrationScenarios:
                     assert len(sent_messages) > 0
 
     @pytest.mark.anyio
-    async def test_high_throughput_scenario(self, transport_config):
+    async def test_high_throughput_scenario(self, transport_config, mock_sqs_client, mock_sns_client):
         """Test handling high message throughput."""
         transport_config.max_messages = 10
 
@@ -500,6 +500,6 @@ class TestIntegrationScenarios:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.3):
-                async with sns_sqs_client(transport_config) as (read_stream, write_stream):
+                async with sns_sqs_client(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
                     # Give time for bulk processing
                     await anyio.sleep(0.1)

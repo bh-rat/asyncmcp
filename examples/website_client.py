@@ -3,9 +3,10 @@
 Sample MCP CLI Client which accepts a tool call and sends it to the server
 """
 
-import asyncio
 import sys
+import time
 
+import anyio
 import mcp.types as types
 from mcp.shared.message import SessionMessage
 
@@ -14,7 +15,7 @@ from shared import print_colored, print_json, create_client_transport_config, se
 
 
 async def send_request(write_stream, method: str, params: dict = None):
-    request_id = int(asyncio.get_event_loop().time() * 1000) % 100000
+    request_id = int(time.time() * 1000) % 100000
     await send_mcp_request(write_stream, method, params, request_id)
 
 
@@ -66,8 +67,7 @@ async def interactive_loop(write_stream):
         try:
             if sys.stdin.isatty():
                 print_colored("> ", "cyan")
-                loop = asyncio.get_event_loop()
-                line = await loop.run_in_executor(None, lambda: sys.stdin.readline())
+                line = await anyio.to_thread.run_sync(lambda: sys.stdin.readline())
 
                 if not line:  # EOF
                     break
@@ -112,7 +112,7 @@ async def process_command(command: str, write_stream):
         sys.exit(0)
     elif cmd == "init":
         await send_request(write_stream, "initialize", DEFAULT_INIT_PARAMS)
-        await asyncio.sleep(1)  # Brief pause to ensure response is processed
+        await anyio.sleep(1)  # Brief pause to ensure response is processed
         await send_initialized_notification(write_stream)
     elif cmd == "tools":
         await send_request(write_stream, "tools/list", {})
@@ -150,13 +150,13 @@ async def listen_for_messages(read_stream):
                     print_colored(f"❌ Message error: {session_message}", "red")
                     continue
                 await handle_message(session_message)
-            except asyncio.CancelledError:
+            except anyio.get_cancelled_exc_class():
                 break
             except Exception as e:
                 print_colored(f"❌ Listener error: {str(e)}", "red")
                 # Continue listening despite errors
                 continue
-    except asyncio.CancelledError:
+    except anyio.get_cancelled_exc_class():
         print_colored("👂 Message listener stopped", "yellow")
 
 
@@ -164,14 +164,14 @@ async def interactive_mode():
     print_colored("Commands: init, tools, call <tool_name> <params...>, quit", "yellow")
     print_colored("Example: call fetch url=https://github.com/bh-rat/asyncmcp", "yellow")
 
-    transport_config = create_client_transport_config("website-client")
+    transport_config, sqs_client, sns_client = create_client_transport_config("website-client")
 
     try:
-        async with sns_sqs_client(transport_config) as (read_stream, write_stream):
+        async with sns_sqs_client(transport_config, sqs_client, sns_client) as (read_stream, write_stream):
             # Starts both message listener and command input concurrently
-            async with asyncio.TaskGroup() as tg:
-                tg.create_task(listen_for_messages(read_stream))
-                tg.create_task(interactive_loop(write_stream))
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(listen_for_messages, read_stream)
+                tg.start_soon(interactive_loop, write_stream)
     except* KeyboardInterrupt:
         print_colored("\n👋 Goodbye!", "yellow")
     except* Exception as e:
@@ -179,7 +179,7 @@ async def interactive_mode():
 
 
 def main():
-    asyncio.run(interactive_mode())
+    anyio.run(interactive_mode)
 
 
 if __name__ == "__main__":

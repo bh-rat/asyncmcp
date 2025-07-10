@@ -1,6 +1,6 @@
 [project]
 name = "asyncmcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Async MCP Transport layer for queue and async based systems"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
@@ -27,7 +27,6 @@ dependencies = [
     "anyio>=4.9.0",
     "boto3>=1.38.36,<2.0.0",
     "mcp>=1.9.4,<2.0.0",
-    "mypy>=1.16.1",
     "orjson>=3.10.0,<4.0.0",
 ]
 
@@ -47,6 +46,7 @@ required-version = ">=0.7.2"
 [dependency-groups]
 dev = [
     "localstack>=4.5.0",
+    "mypy>=1.16.1",
     "pyright>=1.1.391",
     "pytest>=8.3.4",
     "pytest-asyncio>=0.21.0",

@@ -47,30 +47,32 @@ pip install asyncmcp
 
 Note : we don't support FastMCP yet. The examples in this repo uses the [basic way of creating MCP servers and client](https://modelcontextprotocol.io/docs/concepts/architecture#implementation-example) 
 <br/>
-Here’s a basic example of implementing an MCP server which supports sns-sqs as the transport layer:
+Here's a basic example of implementing an MCP server which supports sns-sqs as the transport layer:
 
 ```python
 import boto3
-from asyncmcp.sns_sqs.server import sns_sqs_server, SnsSqsTransportConfig
+from asyncmcp.sns_sqs.server import sns_sqs_server
+from asyncmcp import SnsSqsTransportConfig
 
 # Configure transport
 config = SnsSqsTransportConfig(
     sqs_queue_url="https://sqs.region.amazonaws.com/account/service-queue",
-    sns_topic_arn="arn:aws:sns:region:account:mcp-responses",
-    sqs_client=boto3.client('sqs'),
-    sns_client=boto3.client('sns')
+    sns_topic_arn="arn:aws:sns:region:account:mcp-responses"
 )  # more configurable params available.
 
+# Create AWS clients
+sqs_client = boto3.client('sqs')
+sns_client = boto3.client('sns')
 
 async def main():
-    async with sns_sqs_server(config) as (read_stream, write_stream):
+    async with sns_sqs_server(config, sqs_client, sns_client) as (read_stream, write_stream):
         # Your MCP server logic here
         pass
 ```
 
 ### Basic client setup
 
-Here’s a basic example of implementing an MCP client which supports sns-sqs as the transport layer:
+Here's a basic example of implementing an MCP client which supports sns-sqs as the transport layer:
 
 ```python
 import boto3
@@ -80,14 +82,15 @@ from asyncmcp import SnsSqsTransportConfig
 # Configure transport
 config = SnsSqsTransportConfig(
     sqs_queue_url="https://sqs.region.amazonaws.com/account/client-queue",
-    sns_topic_arn="arn:aws:sns:region:account:mcp-requests",
-    sqs_client=boto3.client('sqs'),
-    sns_client=boto3.client('sns')
+    sns_topic_arn="arn:aws:sns:region:account:mcp-requests"
 )  # more configurable params available.
 
+# Create AWS clients
+sqs_client = boto3.client('sqs')
+sns_client = boto3.client('sns')
 
 async def main():
-    async with sns_sqs_client(config) as (read_stream, write_stream):
+    async with sns_sqs_client(config, sqs_client, sns_client) as (read_stream, write_stream):
         # Your MCP client logic here
         pass
 ```
