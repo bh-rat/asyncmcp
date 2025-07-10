@@ -1,0 +1,164 @@
+[project]
+name = "asyncmcp"
+version = "0.1.0"
+description = "Async MCP Transport layer for queue and async based systems"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
+authors = [{ name = "Bharat Geleda", email = "bharatgeleda@gmail.com" }]
+keywords = ["async", "queue", "mcp", "llm", "automation", "aws", "sns", "sqs"]
+license = { text = "Apache-2.0" }
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11", 
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications",
+    "Topic :: Internet",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+    "Typing :: Typed",
+]
+dependencies = [
+    "anyio>=4.9.0",
+    "boto3>=1.38.36,<2.0.0",
+    "mcp>=1.9.4,<2.0.0",
+    "mypy>=1.16.1",
+    "orjson>=3.10.0,<4.0.0",
+]
+
+[project.optional-dependencies]
+rich = ["rich>=13.9.4"]
+cli = ["typer>=0.12.4", "python-dotenv>=1.0.0"]
+aws = ["awscli>=1.40.35,<2.0.0"]
+dev = ["localstack>=4.5.0,<5.0.0"]
+
+# [project.scripts]
+# No CLI scripts provided yet
+
+[tool.uv]
+default-groups = ["dev", "docs"]
+required-version = ">=0.7.2"
+
+[dependency-groups]
+dev = [
+    "localstack>=4.5.0",
+    "pyright>=1.1.391",
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.8.5",
+    "trio>=0.26.2",
+    "pytest-flakefinder>=1.1.0",
+    "pytest-xdist>=3.6.1",
+    "pytest-examples>=0.0.14",
+    "pytest-pretty>=1.2.0",
+    "inline-snapshot>=0.23.2",
+]
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocs-glightbox>=0.4.0",
+    "mkdocs-material[imaging]>=9.5.45",
+    "mkdocstrings-python>=1.12.2",
+]
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[project.urls]
+Homepage = "https://github.com/bh-rat/asyncmcp"
+Repository = "https://github.com/bh-rat/asyncmcp"
+Documentation = "https://github.com/bh-rat/asyncmcp#readme"
+"Bug Tracker" = "https://github.com/bh-rat/asyncmcp/issues"
+Changelog = "https://github.com/bh-rat/asyncmcp/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/asyncmcp"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "tests/",
+  ".pytest_cache/",
+  "__pycache__/",
+  ".venv/",
+  ".git/", 
+  ".idea/",
+  "*.pyc",
+  "*.pyo",
+  "*~",
+  ".DS_Store",
+  "conftest.py",
+  "uv.lock",
+  ".python-version",
+  ".gitignore",
+]
+
+[tool.pyright]
+include = ["src/asyncmcp", "tests"]
+venvPath = "."
+venv = ".venv"
+strict = ["src/asyncmcp/**/*.py"]
+
+[tool.ruff.lint]
+select = ["C4", "E", "F", "I", "PERF", "UP"]
+ignore = ["PERF203"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.uv.workspace]
+members = ["examples/servers/*"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config", 
+    "--disable-warnings",
+    "-v",
+    "--color=yes",
+    "--capture=fd",
+]
+markers = [
+    "anyio: mark test to run with anyio",
+    "integration: mark test as integration test", 
+    "performance: mark test as performance test",
+    "slow: mark test as slow running",
+    "unit: mark test as unit test",
+    "client: mark test as client-specific",
+    "server: mark test as server-specific",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore::ResourceWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
+asyncio_mode = "auto"
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)8s] %(name)s: %(message)s"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+xfail_strict = true

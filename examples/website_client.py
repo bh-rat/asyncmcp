@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""
+Sample MCP CLI Client which accepts a tool call and sends it to the server
+"""
+
+import asyncio
+import sys
+
+import mcp.types as types
+from mcp.shared.message import SessionMessage
+
+from asyncmcp.sns_sqs.client import sns_sqs_client
+from shared import print_colored, print_json, create_client_transport_config, send_mcp_request, DEFAULT_INIT_PARAMS
+
+
+async def send_request(write_stream, method: str, params: dict = None):
+    request_id = int(asyncio.get_event_loop().time() * 1000) % 100000
+    await send_mcp_request(write_stream, method, params, request_id)
+
+
+async def handle_message(session_message: SessionMessage):
+    message = session_message.message.root
+    await handle_response(message)
+
+
+async def handle_response(message):
+    if hasattr(message, "error"):
+        error = message.error
+        print_colored(f"❌ Error: {error}", "red")
+        return
+
+    if not hasattr(message, "result") or not isinstance(message.result, dict):
+        return
+
+    result = message.result
+
+    if "serverInfo" in result:
+        server_info = result["serverInfo"]
+        print_colored(f"✅ Initialized with server: {server_info.get('name', 'Unknown')}", "green")
+        return
+
+    if "tools" in result:
+        tools = result["tools"]
+        print_colored(f"✅ Found {len(tools)} tools:", "green")
+        for tool in tools:
+            print_colored(f"   • {tool.get('name', 'Unknown')}: {tool.get('description', 'No description')}", "white")
+        return
+
+    if "content" in result:
+        content = result["content"]
+        print_colored("✅ Tool result:", "green")
+        for item in content:
+            if item.get("type") == "text":
+                print_colored(f"   📄 {item.get('text', '')}", "white")
+            else:
+                print_json(item, "Content Item")
+        return
+
+    # Default case for other dict results
+    print_colored("✅ Response received:", "green")
+    print_json(result)
+
+
+async def interactive_loop(write_stream):
+    while True:
+        try:
+            if sys.stdin.isatty():
+                print_colored("> ", "cyan")
+                loop = asyncio.get_event_loop()
+                line = await loop.run_in_executor(None, lambda: sys.stdin.readline())
+
+                if not line:  # EOF
+                    break
+
+                command = line.strip()
+                if not command:
+                    continue
+
+                should_continue = await process_command(command, write_stream)
+                if not should_continue:
+                    break
+
+        except KeyboardInterrupt:
+            print_colored("\n👋 Goodbye!", "yellow")
+            break
+        except EOFError:
+            print_colored("\n👋 Goodbye!", "yellow")
+            break
+
+
+async def send_initialized_notification(write_stream):
+    notification = types.JSONRPCMessage.model_validate(
+        {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
+    )
+
+    session_message = SessionMessage(notification)
+    await write_stream.send(session_message)
+    print_colored("📤 Sent initialized notification", "cyan")
+
+
+async def process_command(command: str, write_stream):
+    """Process a single command"""
+    parts = command.split()
+
+    if not parts:
+        return
+
+    cmd = parts[0].lower()
+
+    if cmd in ["quit", "exit", "q"]:
+        print_colored("👋 Goodbye!", "yellow")
+        sys.exit(0)
+    elif cmd == "init":
+        await send_request(write_stream, "initialize", DEFAULT_INIT_PARAMS)
+        await asyncio.sleep(1)  # Brief pause to ensure response is processed
+        await send_initialized_notification(write_stream)
+    elif cmd == "tools":
+        await send_request(write_stream, "tools/list", {})
+    elif cmd == "call":
+        if len(parts) >= 2:
+            tool_name = parts[1]
+            param_parts = parts[2:]
+            arguments = {}
+            for param in param_parts:
+                if "=" in param:
+                    # Handle key=value format
+                    key, value = param.split("=", 1)
+                    arguments[key] = value
+                else:
+                    param_index = len([k for k in arguments.keys() if k.startswith("param")])
+                    arguments[f"param{param_index}"] = param
+
+            params = {"name": tool_name, "arguments": arguments}
+            await send_request(write_stream, "tools/call", params)
+        else:
+            print_colored("❌ Usage: call <tool_name> <params...>", "red")
+
+    else:
+        print_colored(f"❌ Unknown command: {cmd}", "red")
+
+    return True
+
+
+async def listen_for_messages(read_stream):
+    try:
+        while True:
+            try:
+                session_message = await read_stream.receive()
+                if isinstance(session_message, Exception):
+                    print_colored(f"❌ Message error: {session_message}", "red")
+                    continue
+                await handle_message(session_message)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print_colored(f"❌ Listener error: {str(e)}", "red")
+                # Continue listening despite errors
+                continue
+    except asyncio.CancelledError:
+        print_colored("👂 Message listener stopped", "yellow")
+
+
+async def interactive_mode():
+    print_colored("Commands: init, tools, call <tool_name> <params...>, quit", "yellow")
+    print_colored("Example: call fetch url=https://github.com/bh-rat/asyncmcp", "yellow")
+
+    transport_config = create_client_transport_config("website-client")
+
+    try:
+        async with sns_sqs_client(transport_config) as (read_stream, write_stream):
+            # Starts both message listener and command input concurrently
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task(listen_for_messages(read_stream))
+                tg.create_task(interactive_loop(write_stream))
+    except* KeyboardInterrupt:
+        print_colored("\n👋 Goodbye!", "yellow")
+    except* Exception as e:
+        print_colored(f"❌ Transport error: {e}", "red")
+
+
+def main():
+    asyncio.run(interactive_mode())
+
+
+if __name__ == "__main__":
+    main()

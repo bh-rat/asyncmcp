@@ -1,0 +1,24 @@
+# Include essential documentation files
+include README.md
+include LICENSE
+include CHANGELOG.md
+include SECURITY.md
+
+# Include py.typed for type checking support
+include src/asyncmcp/py.typed
+
+# Exclude development and testing files
+exclude .gitignore
+exclude .python-version
+exclude conftest.py
+exclude uv.lock
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *~
+global-exclude .DS_Store
+prune .idea/
+prune .venv/
+prune .git/
+prune tests/
+prune .pytest_cache/
+prune __pycache__/ 
