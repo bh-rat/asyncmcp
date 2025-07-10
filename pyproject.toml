@@ -1,6 +1,6 @@
 [project]
 name = "asyncmcp"
-version = "0.1.1"
+version = "0.1.2"
 description = "Async MCP Transport layer for queue and async based systems"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
