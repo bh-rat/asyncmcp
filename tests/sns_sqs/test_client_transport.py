@@ -180,7 +180,7 @@ class TestCreateSNSMessageAttributes:
         assert attrs["CustomAttr"]["StringValue"] == "custom-value"
 
 
-class TestSQSSNSClient:
+class TestSnsSqsClient:
     """Test the main sns_sqs_client context manager."""
 
     @pytest.mark.anyio
@@ -384,27 +384,30 @@ class TestConfigurationValidation:
         config = SnsSqsTransportConfig(
             sqs_queue_url="test-queue",
             sns_topic_arn="test-topic",
-            sqs_client=mock_sqs_client,
-            sns_client=mock_sns_client,
         )
 
         assert config.sqs_queue_url == "test-queue"
         assert config.sns_topic_arn == "test-topic"
-        assert config.max_messages == 10  # default value
-        assert config.client_id is None  # default value
+        assert config.max_messages == 10  # Default value
+        assert config.wait_time_seconds == 20  # Default value
+        assert config.visibility_timeout_seconds == 30  # Default value
+        assert config.message_attributes is None  # Default value
+        assert config.poll_interval_seconds == 5.0  # Default value
+        assert config.client_id is None  # Default value
+        assert config.transport_timeout_seconds is None  # Default value
 
     def test_config_with_custom_values(self, mock_sqs_client, mock_sns_client):
         """Test creating configuration with custom values."""
         config = SnsSqsTransportConfig(
             sqs_queue_url="custom-queue",
             sns_topic_arn="custom-topic",
-            sqs_client=mock_sqs_client,
-            sns_client=mock_sns_client,
             max_messages=5,
             client_id="custom-client",
             transport_timeout_seconds=30.0,
         )
 
+        assert config.sqs_queue_url == "custom-queue"
+        assert config.sns_topic_arn == "custom-topic"
         assert config.max_messages == 5
         assert config.client_id == "custom-client"
         assert config.transport_timeout_seconds == 30.0

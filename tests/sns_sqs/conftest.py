@@ -252,27 +252,6 @@ def performance_config():
     }
 
 
-@pytest.fixture(autouse=True)
-def cleanup_async_tasks():
-    """Automatically cleanup async tasks after each test."""
-    yield
-
-    # Cancel any remaining tasks only if there's a running event loop
-    try:
-        # Use anyio equivalent if available
-        import anyio.lowlevel
-        try:
-            anyio.lowlevel.current_task()
-            # There's a running anyio context, but anyio doesn't have a direct equivalent
-            # to asyncio.all_tasks(), so we'll skip cleanup in anyio context
-        except RuntimeError:
-            # No running anyio context
-            pass
-    except RuntimeError:
-        # No running event loop, nothing to clean up
-        pass
-
-
 @pytest.fixture
 def integration_test_config():
     """Configuration for integration tests."""
