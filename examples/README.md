@@ -1,6 +1,11 @@
 # MCP Local CLI Testing
 
-This directory an interactive CLI client example showing how asyncmcp can be used.
+This directory contains an interactive CLI client example showing how asyncmcp can be used. 
+The CLI allows to take actions and the server is an asyncmcp version of MCP's [fetch server example](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch)
+
+> [!CAUTION]
+> This server can access local/internal IP addresses and may represent a security risk. Exercise caution when using this MCP server to ensure this does not expose any sensitive data.
+
 
 ## Prerequisites
 
@@ -63,4 +68,4 @@ call fetch url=https://github.com/bh-rat/asyncmcp
    📄 <!doctype html><html itemscope="" ...
 ```
 
-The whole MCP communication happened through queues and topics. 
+The whole MCP communication happened through queues and topics.

@@ -129,7 +129,9 @@ class TestSQSMessageProcessorServer:
             assert mock_delete.call_count == 3
 
     @pytest.mark.anyio
-    async def test_process_server_messages_with_validation_errors(self, transport_config, sample_sqs_message, mock_sqs_client):
+    async def test_process_server_messages_with_validation_errors(
+        self, transport_config, sample_sqs_message, mock_sqs_client
+    ):
         """Test processing server messages when validation fails."""
         messages = [sample_sqs_message.copy() for _ in range(2)]
         messages[0]["MessageId"] = "good-server-msg"
@@ -214,7 +216,7 @@ class TestCreateSNSMessageAttributesServer:
         assert attrs["MessageType"]["StringValue"] == "jsonrpc"
 
 
-class TestSQSSNSServer:
+class TestSnsSqsServer:
     """Test the main sns_sqs_server context manager."""
 
     @pytest.mark.anyio
@@ -226,14 +228,19 @@ class TestSQSSNSServer:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.1):
-                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
+                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (
+                    read_stream,
+                    write_stream,
+                ):
                     assert read_stream is not None
                     assert write_stream is not None
                     # Brief delay to let background tasks start
                     await anyio.sleep(0.01)
 
     @pytest.mark.anyio
-    async def test_server_receive_and_send_messages(self, transport_config, sample_jsonrpc_response):
+    async def test_server_receive_and_send_messages(
+        self, transport_config, sample_jsonrpc_response, mock_sqs_client, mock_sns_client
+    ):
         """Test receiving and sending messages through the server transport."""
         with patch("anyio.to_thread.run_sync") as mock_run_sync:
             # Track call count to prevent infinite loop
@@ -270,13 +277,15 @@ class TestSQSSNSServer:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.5):
-                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
+                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (
+                    read_stream,
+                    write_stream,
+                ):
                     # Send a response
-                    session_message = SessionMessage(sample_jsonrpc_response)
-                    await write_stream.send(session_message)
+                    await write_stream.send(SessionMessage(sample_jsonrpc_response))
 
-                    # Give some time for processing
-                    await anyio.sleep(0.05)
+                    # Verify message was sent
+                    assert call_count > 0
 
     @pytest.mark.anyio
     async def test_server_long_polling(self, transport_config, mock_sqs_client, mock_sns_client):
@@ -288,7 +297,10 @@ class TestSQSSNSServer:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.1):
-                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
+                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (
+                    read_stream,
+                    write_stream,
+                ):
                     await anyio.sleep(0.05)
 
     @pytest.mark.anyio
@@ -317,7 +329,10 @@ class TestSQSSNSServer:
             with anyio.move_on_after(0.1):
                 # The server should handle the error gracefully without crashing
                 try:
-                    async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
+                    async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (
+                        read_stream,
+                        write_stream,
+                    ):
                         # Should handle the error gracefully
                         await anyio.sleep(0.05)
                 except Exception:
@@ -325,7 +340,9 @@ class TestSQSSNSServer:
                     pass
 
     @pytest.mark.anyio
-    async def test_server_error_handling_in_sns_writer(self, transport_config, sample_jsonrpc_response):
+    async def test_server_error_handling_in_sns_writer(
+        self, transport_config, sample_jsonrpc_response, mock_sqs_client, mock_sns_client
+    ):
         """Test error handling in server SNS writer."""
         with patch("anyio.to_thread.run_sync") as mock_run_sync:
             # Mock empty SQS response for reader
@@ -341,12 +358,12 @@ class TestSQSSNSServer:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.1):
-                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
-                    # Send message that will cause SNS error
-                    session_message = SessionMessage(sample_jsonrpc_response)
+                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (
+                    read_stream,
+                    write_stream,
+                ):
+                    session_message = sample_jsonrpc_response
                     await write_stream.send(session_message)
-
-                    # Should handle the error gracefully and continue
                     await anyio.sleep(0.05)
 
     @pytest.mark.anyio
@@ -384,7 +401,10 @@ class TestSQSSNSServer:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.2):
-                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
+                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (
+                    read_stream,
+                    write_stream,
+                ):
                     # Give time for message processing
                     await anyio.sleep(0.1)
 
@@ -424,7 +444,10 @@ class TestSQSSNSServer:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.2):
-                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
+                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (
+                    read_stream,
+                    write_stream,
+                ):
                     # Receive the correlated message
                     message = await read_stream.receive()
 
@@ -442,28 +465,31 @@ class TestServerConfigurationValidation:
         config = SnsSqsTransportConfig(
             sqs_queue_url="server-test-queue",
             sns_topic_arn="server-test-topic",
-            sqs_client=mock_sqs_client,
-            sns_client=mock_sns_client,
         )
 
         assert config.sqs_queue_url == "server-test-queue"
         assert config.sns_topic_arn == "server-test-topic"
-        assert config.max_messages == 10  # default value
-        assert config.wait_time_seconds == 20  # default value
+        assert config.max_messages == 10  # Default value
+        assert config.wait_time_seconds == 20  # Default value
+        assert config.visibility_timeout_seconds == 30  # Default value
+        assert config.message_attributes is None  # Default value
+        assert config.poll_interval_seconds == 5.0  # Default value
+        assert config.client_id is None  # Default value
+        assert config.transport_timeout_seconds is None  # Default value
 
     def test_server_config_with_custom_values(self, mock_sqs_client, mock_sns_client):
         """Test creating server configuration with custom values."""
         config = SnsSqsTransportConfig(
             sqs_queue_url="custom-server-queue",
             sns_topic_arn="custom-server-topic",
-            sqs_client=mock_sqs_client,
-            sns_client=mock_sns_client,
             max_messages=15,
             wait_time_seconds=10,
             visibility_timeout_seconds=60,
             poll_interval_seconds=0.5,
         )
 
+        assert config.sqs_queue_url == "custom-server-queue"
+        assert config.sns_topic_arn == "custom-server-topic"
         assert config.max_messages == 15
         assert config.wait_time_seconds == 10
         assert config.visibility_timeout_seconds == 60
@@ -511,7 +537,10 @@ class TestServerIntegrationScenarios:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.5):
-                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
+                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (
+                    read_stream,
+                    write_stream,
+                ):
                     # Receive request
                     request = await read_stream.receive()
                     assert isinstance(request, SessionMessage)
@@ -558,7 +587,10 @@ class TestServerIntegrationScenarios:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.2):
-                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
+                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (
+                    read_stream,
+                    write_stream,
+                ):
                     # Receive notification
                     notification = await read_stream.receive()
 
@@ -602,7 +634,10 @@ class TestServerIntegrationScenarios:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.3):
-                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
+                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (
+                    read_stream,
+                    write_stream,
+                ):
                     # Give time for bulk processing
                     await anyio.sleep(0.1)
 
@@ -649,7 +684,10 @@ class TestServerIntegrationScenarios:
 
             # Use timeout to prevent hanging
             with anyio.move_on_after(0.3):
-                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (read_stream, write_stream):
+                async with sns_sqs_server(transport_config, mock_sqs_client, mock_sns_client) as (
+                    read_stream,
+                    write_stream,
+                ):
                     # Receive message with metadata
                     request = await read_stream.receive()
 

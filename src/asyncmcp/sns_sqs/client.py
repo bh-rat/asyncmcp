@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 async def _create_sns_message_attributes(
-    session_message: SessionMessage, config: SnsSqsTransportConfig, client_id: str
+    session_message: SessionMessage,
+    client_id: str,
+    config: SnsSqsTransportConfig,
 ) -> Dict[str, Any]:
     """Create SNS message attributes."""
     base_attrs = {
@@ -89,7 +91,7 @@ async def sns_sqs_client(
 
                 try:
                     json_message = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
-                    message_attributes = await _create_sns_message_attributes(session_message, config, client_id)
+                    message_attributes = await _create_sns_message_attributes(session_message, client_id, config)
 
                     await anyio.to_thread.run_sync(
                         lambda: sns_client.publish(

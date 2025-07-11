@@ -95,7 +95,7 @@ async def main():
         pass
 ```
 
-You can check full examples at `/examples/website_server.py` and `/examples/website_client.py`. 
+You can check full examples at `/examples/website_server.py` and `/examples/website_client.py`.
 <br/>
 Read more at `/examples/README.md`
 

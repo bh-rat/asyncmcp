@@ -98,7 +98,7 @@ def create_client_transport_config(
         client_id=client_id,
         transport_timeout_seconds=timeout,
     )
-    
+
     return config, sqs_client, sns_client
 
 
@@ -113,7 +113,7 @@ def create_server_transport_config() -> tuple[SnsSqsTransportConfig, Any, Any]:
         wait_time_seconds=5,
         poll_interval_seconds=1.0,
     )
-    
+
     return config, sqs_client, sns_client
 
 
