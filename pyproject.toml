@@ -1,6 +1,6 @@
 [project]
 name = "asyncmcp"
-version = "0.1.2"
+dynamic = ["version"]
 description = "Async MCP Transport layer for queue and async based systems"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
@@ -76,6 +76,7 @@ source = "uv-dynamic-versioning"
 vcs = "git"
 style = "pep440"
 bump = true
+fallback-version = "0.0.0"
 
 [project.urls]
 Homepage = "https://github.com/bh-rat/asyncmcp"
