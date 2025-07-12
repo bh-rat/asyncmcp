@@ -37,7 +37,6 @@ wheels = [
 
 [[package]]
 name = "asyncmcp"
-version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -95,7 +94,7 @@ requires-dist = [
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.9.4" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12.4" },
 ]
-provides-extras = ["rich", "cli", "aws", "dev"]
+provides-extras = ["aws", "cli", "dev", "rich"]
 
 [package.metadata.requires-dev]
 dev = [
