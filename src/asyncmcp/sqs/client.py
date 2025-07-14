@@ -50,7 +50,7 @@ async def sqs_client(
     tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]],
     None,
 ]:
-    client_id = str(uuid.uuid4())
+    client_id = config.client_id or str(uuid.uuid4())
 
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]

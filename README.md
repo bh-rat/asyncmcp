@@ -31,6 +31,11 @@ The whole idea of an **MCP server with async transport layer** is that it doesn'
 - Server : Transport layer that listens to a queue for MCP requests and writes the responses to a topic
 - Client : Transport layer that writes requests to a topic and listens to a queue for responses
 
+### Transport layer : sqs
+
+- Server : Transport layer that listens to a queue for MCP requests and writes the responses to another queue
+- Client : Transport layer that writes requests to a queue and listens to another queue for responses
+
 ## Installation and Usage
 
 ```bash
