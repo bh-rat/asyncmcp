@@ -13,11 +13,12 @@ import subprocess
 import time
 import requests
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple, Union
 from dataclasses import dataclass, asdict
 import mcp.types as types
 from mcp.shared.message import SessionMessage
 from asyncmcp.sns_sqs.utils import SnsSqsTransportConfig
+from asyncmcp.sqs.utils import SqsTransportConfig
 
 # AWS LocalStack configuration
 AWS_CONFIG = {
@@ -34,6 +35,10 @@ RESOURCES = {
     "client_response_queue": "http://localhost:4566/000000000000/mcp-consumer",
     "server_request_queue": "http://localhost:4566/000000000000/mcp-processor",
 }
+
+# Transport types
+TRANSPORT_SNS_SQS = "sns-sqs"
+TRANSPORT_SQS = "sqs"
 
 # Common MCP configuration
 DEFAULT_INIT_PARAMS = {
@@ -84,37 +89,59 @@ def print_json(data: Dict[str, Any], title: str = ""):
 
 
 def create_client_transport_config(
-    client_id: str = "mcp-client", timeout: Optional[float] = None
-) -> tuple[SnsSqsTransportConfig, Any, Any]:
+    client_id: str = "mcp-client", timeout: Optional[float] = None, transport_type: str = TRANSPORT_SNS_SQS
+) -> Union[Tuple[SnsSqsTransportConfig, Any, Any], Tuple[SqsTransportConfig, Any, None]]:
     """Create a standard client transport configuration"""
     sqs_client, sns_client = setup_aws_clients()
 
-    config = SnsSqsTransportConfig(
-        sqs_queue_url=RESOURCES["client_response_queue"],
-        sns_topic_arn=RESOURCES["client_request_topic"],
-        max_messages=1,
-        wait_time_seconds=5,
-        poll_interval_seconds=2.0,
-        client_id=client_id,
-        transport_timeout_seconds=timeout,
-    )
+    if transport_type == TRANSPORT_SNS_SQS:
+        config = SnsSqsTransportConfig(
+            sqs_queue_url=RESOURCES["client_response_queue"],
+            sns_topic_arn=RESOURCES["client_request_topic"],
+            max_messages=1,
+            wait_time_seconds=5,
+            poll_interval_seconds=2.0,
+            client_id=client_id,
+            transport_timeout_seconds=timeout,
+        )
+        return config, sqs_client, sns_client
+    else:  # SQS only
+        config = SqsTransportConfig(
+            read_queue_url=RESOURCES["client_response_queue"],
+            write_queue_url=RESOURCES["server_request_queue"],
+            max_messages=1,
+            wait_time_seconds=5,
+            poll_interval_seconds=2.0,
+            client_id=client_id,
+            transport_timeout_seconds=timeout,
+        )
+        return config, sqs_client, None
 
-    return config, sqs_client, sns_client
 
-
-def create_server_transport_config() -> tuple[SnsSqsTransportConfig, Any, Any]:
+def create_server_transport_config(
+    transport_type: str = TRANSPORT_SNS_SQS,
+) -> Union[Tuple[SnsSqsTransportConfig, Any, Any], Tuple[SqsTransportConfig, Any, None]]:
     """Create a standard server transport configuration"""
     sqs_client, sns_client = setup_aws_clients()
 
-    config = SnsSqsTransportConfig(
-        sqs_queue_url=RESOURCES["server_request_queue"],
-        sns_topic_arn=RESOURCES["server_response_topic"],
-        max_messages=10,
-        wait_time_seconds=5,
-        poll_interval_seconds=1.0,
-    )
-
-    return config, sqs_client, sns_client
+    if transport_type == TRANSPORT_SNS_SQS:
+        config = SnsSqsTransportConfig(
+            sqs_queue_url=RESOURCES["server_request_queue"],
+            sns_topic_arn=RESOURCES["server_response_topic"],
+            max_messages=10,
+            wait_time_seconds=5,
+            poll_interval_seconds=1.0,
+        )
+        return config, sqs_client, sns_client
+    else:  # SQS only
+        config = SqsTransportConfig(
+            read_queue_url=RESOURCES["server_request_queue"],
+            write_queue_url=RESOURCES["client_response_queue"],
+            max_messages=10,
+            wait_time_seconds=5,
+            poll_interval_seconds=1.0,
+        )
+        return config, sqs_client, None
 
 
 async def send_mcp_request(write_stream, method: str, params: dict = None, request_id: int = 1) -> SessionMessage:

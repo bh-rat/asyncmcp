@@ -49,7 +49,7 @@ In the interactive client (Terminal 2):
 ```
 Quick Interactive MCP Client
 Commands: init, tools, call <tool_name> <params...>, quit
-Example: call fetch url=https://github.com/bh-rat/asyncmcp
+Example: call fetch url=https://google.com
 🔗 Connected to MCP transport
 >
 init
@@ -62,7 +62,7 @@ tools
 ✅ Found 1 tools:
    • fetch: Fetches a website and returns its content
 >
-call fetch url=https://github.com/bh-rat/asyncmcp
+call fetch url=https://google.com
 📤 Sending tools/call request...
 ✅ Tool result:
    📄 <!doctype html><html itemscope="" ...

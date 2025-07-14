@@ -6,7 +6,8 @@ from mcp.server.lowlevel import Server
 from mcp.shared._httpx_utils import create_mcp_http_client
 
 from asyncmcp.sns_sqs.server import sns_sqs_server
-from shared import create_server_transport_config, print_colored
+from asyncmcp.sqs.server import sqs_server
+from shared import create_server_transport_config, print_colored, TRANSPORT_SNS_SQS, TRANSPORT_SQS
 
 
 async def fetch_website(
@@ -22,7 +23,13 @@ async def fetch_website(
 
 
 @click.command()
-def main() -> int:
+@click.option(
+    "--transport",
+    type=click.Choice([TRANSPORT_SNS_SQS, TRANSPORT_SQS], case_sensitive=False),
+    default=TRANSPORT_SNS_SQS,
+    help="Transport layer to use",
+)
+def main(transport) -> int:
     print_colored("🚀 Starting MCP Website Fetcher Server", "cyan")
     app = Server("mcp-website-fetcher")
 
@@ -55,10 +62,18 @@ def main() -> int:
         ]
 
     async def arun():
-        # Changes for running asyncmcp servers :
-        print_colored("🔧 Configuring SNS/SQS transport", "yellow")
-        server_configuration, sqs_client, sns_client = create_server_transport_config()
-        async with sns_sqs_server(server_configuration, sqs_client, sns_client) as (read_stream, write_stream):
+        # Configure transport based on command line argument
+        print_colored(f"🔧 Configuring {transport} transport", "yellow")
+        server_configuration, sqs_client, sns_client = create_server_transport_config(transport)
+
+        if transport == TRANSPORT_SNS_SQS:
+            server = sns_sqs_server
+            server_args = (server_configuration, sqs_client, sns_client)
+        else:
+            server = sqs_server
+            server_args = (server_configuration, sqs_client)
+
+        async with server(*server_args) as (read_stream, write_stream):
             print_colored("📡 Server ready and listening for requests", "green")
             await app.run(read_stream, write_stream, app.create_initialization_options())
 
