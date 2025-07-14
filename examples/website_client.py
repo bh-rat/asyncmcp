@@ -7,11 +7,21 @@ import sys
 import time
 
 import anyio
+import click
 import mcp.types as types
 from mcp.shared.message import SessionMessage
 
 from asyncmcp.sns_sqs.client import sns_sqs_client
-from shared import print_colored, print_json, create_client_transport_config, send_mcp_request, DEFAULT_INIT_PARAMS
+from asyncmcp.sqs.client import sqs_client as pure_sqs_client
+from shared import (
+    print_colored,
+    print_json,
+    create_client_transport_config,
+    send_mcp_request,
+    DEFAULT_INIT_PARAMS,
+    TRANSPORT_SNS_SQS,
+    TRANSPORT_SQS,
+)
 
 
 async def send_request(write_stream, method: str, params: dict = None):
@@ -160,14 +170,34 @@ async def listen_for_messages(read_stream):
         print_colored("👂 Message listener stopped", "yellow")
 
 
-async def interactive_mode():
-    print_colored("Commands: init, tools, call <tool_name> <params...>, quit", "yellow")
-    print_colored("Example: call fetch url=https://github.com/bh-rat/asyncmcp", "yellow")
+@click.command()
+@click.option(
+    "--transport",
+    type=click.Choice([TRANSPORT_SNS_SQS, TRANSPORT_SQS], case_sensitive=False),
+    default=TRANSPORT_SNS_SQS,
+    help="Transport layer to use",
+)
+def main(transport):
+    anyio.run(lambda: interactive_mode(transport))
 
-    transport_config, sqs_client, sns_client = create_client_transport_config("website-client")
+
+async def interactive_mode(transport_type: str = TRANSPORT_SNS_SQS):
+    print_colored("Commands: init, tools, call <tool_name> <params...>, quit", "yellow")
+    print_colored("Example: call fetch url=https://google.com", "yellow")
+
+    transport_config, sqs_client, sns_client = create_client_transport_config(
+        "website-client", transport_type=transport_type
+    )
 
     try:
-        async with sns_sqs_client(transport_config, sqs_client, sns_client) as (read_stream, write_stream):
+        if transport_type == TRANSPORT_SNS_SQS:
+            client = sns_sqs_client
+            client_args = (transport_config, sqs_client, sns_client)
+        else:
+            client = pure_sqs_client
+            client_args = (transport_config, sqs_client)
+
+        async with client(*client_args) as (read_stream, write_stream):
             # Starts both message listener and command input concurrently
             async with anyio.create_task_group() as tg:
                 tg.start_soon(listen_for_messages, read_stream)
@@ -176,10 +206,6 @@ async def interactive_mode():
         print_colored("\n👋 Goodbye!", "yellow")
     except* Exception as e:
         print_colored(f"❌ Transport error: {e}", "red")
-
-
-def main():
-    anyio.run(interactive_mode)
 
 
 if __name__ == "__main__":
