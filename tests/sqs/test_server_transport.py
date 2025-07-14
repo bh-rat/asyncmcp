@@ -195,11 +195,11 @@ class TestSqsServer:
         mock_sqs_client.send_message.return_value = {"MessageId": "server-response-id"}
         mock_sqs_client.receive_message.return_value = {"Messages": []}
 
-        with anyio.move_on_after(0.2):  # Add timeout to prevent hanging
+        with anyio.move_on_after(0.5):  # Add timeout to prevent hanging
             async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
                 # Send a response
                 await write_stream.send(session_message)
-                await anyio.sleep(0.01)  # Allow message to be processed
+                await anyio.sleep(0.1)  # Allow message to be processed
 
                 # Verify send_message was called
                 assert mock_sqs_client.send_message.called
@@ -221,19 +221,27 @@ class TestSqsServer:
     @pytest.mark.anyio
     async def test_server_error_handling_in_sqs_reader(self, transport_config, mock_sqs_client):
         """Test error handling in server SQS reader task."""
-        with patch("anyio.to_thread.run_sync") as mock_run_sync:
+        call_count = 0
 
-            def side_effect(func):
-                if "receive_message" in str(func):
-                    raise Exception("Server SQS receive error")
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                # First two calls raise an exception (simulating AWS errors)
+                raise Exception("Simulated AWS SQS error")
+            else:
+                # Subsequent calls return empty to avoid infinite polling
                 return {"Messages": []}
 
-            mock_run_sync.side_effect = side_effect
+        mock_sqs_client.receive_message.side_effect = side_effect
 
-            with anyio.move_on_after(0.1):
-                async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
-                    # Should handle the error gracefully
-                    await anyio.sleep(0.05)
+        with anyio.move_on_after(0.2):
+            async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
+                # The reader should continue running despite the errors
+                await anyio.sleep(0.1)
+
+                # Verify that receive_message was called multiple times (indicating recovery)
+                assert mock_sqs_client.receive_message.call_count >= 2
 
     @pytest.mark.anyio
     async def test_server_error_handling_in_sqs_writer(
@@ -242,22 +250,33 @@ class TestSqsServer:
         """Test error handling in server SQS writer task."""
         session_message = SessionMessage(sample_jsonrpc_response)
 
-        with patch("anyio.to_thread.run_sync") as mock_run_sync:
+        call_count = 0
 
-            def side_effect(func):
-                if "send_message" in str(func):
-                    raise Exception("Server SQS send error")
-                elif "receive_message" in str(func):
-                    return {"Messages": []}
-                return {}
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First call raises an exception
+                raise Exception("Simulated AWS SQS send error")
+            else:
+                # Subsequent calls succeed
+                return {"MessageId": "server-msg-id"}
 
-            mock_run_sync.side_effect = side_effect
+        mock_sqs_client.send_message.side_effect = side_effect
+        mock_sqs_client.receive_message.return_value = {"Messages": []}
 
-            with anyio.move_on_after(0.1):
-                async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
-                    # Should handle the error gracefully
-                    await write_stream.send(session_message)
-                    await anyio.sleep(0.05)
+        with anyio.move_on_after(0.5):
+            async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
+                # Send first message (should fail but not crash)
+                await write_stream.send(session_message)
+                await anyio.sleep(0.1)
+
+                # Send second message (should succeed)
+                await write_stream.send(session_message)
+                await anyio.sleep(0.1)
+
+                # Verify both send attempts were made
+                assert mock_sqs_client.send_message.call_count >= 2
 
     @pytest.mark.anyio
     async def test_server_concurrent_message_processing(self, transport_config, mock_sqs_client):
@@ -388,10 +407,10 @@ class TestServerIntegrationScenarios:
         mock_sqs_client.receive_message.side_effect = receive_side_effect
         mock_sqs_client.send_message.return_value = {"MessageId": "resp-msg-1"}
 
-        with anyio.move_on_after(0.3):  # Add timeout to prevent hanging
+        with anyio.move_on_after(0.5):  # Add timeout to prevent hanging
             async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
                 # Receive a request
-                with anyio.move_on_after(0.1):
+                with anyio.move_on_after(0.2):
                     request = await read_stream.receive()
                     assert isinstance(request, SessionMessage)
                     assert request.message.root.method == "test"
@@ -401,7 +420,7 @@ class TestServerIntegrationScenarios:
                     JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=1, result={"status": "ok"}))
                 )
                 await write_stream.send(response)
-                await anyio.sleep(0.01)
+                await anyio.sleep(0.1)
 
                 # Verify response was sent
                 assert mock_sqs_client.send_message.called

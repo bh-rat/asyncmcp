@@ -1,3 +1,4 @@
+import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -11,7 +12,9 @@ from collections.abc import AsyncGenerator
 import mcp.types as types
 from mcp.shared.message import SessionMessage
 
-from asyncmcp.sqs.utils import SqsTransportConfig, process_sqs_message
+from .utils import SqsTransportConfig, process_sqs_message
+
+logger = logging.getLogger(__name__)
 
 
 async def _create_sqs_message_attributes(
@@ -47,33 +50,39 @@ async def sqs_client(
     tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]],
     None,
 ]:
+    client_id = str(uuid.uuid4())
+
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
 
-    write_stream: MemoryObjectSendStream[SessionMessage]
     write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
+    write_stream: MemoryObjectSendStream[SessionMessage]
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
-    client_id = config.client_id or f"mcp-client-{uuid.uuid4().hex[:8]}"
 
     async def sqs_reader() -> None:
         async with read_stream_writer:
             while True:
                 await anyio.lowlevel.checkpoint()
-                response = await anyio.to_thread.run_sync(
-                    lambda: sqs_client.receive_message(
-                        QueueUrl=config.read_queue_url,
-                        MaxNumberOfMessages=config.max_messages,
-                        WaitTimeSeconds=config.wait_time_seconds,
-                        VisibilityTimeout=config.visibility_timeout_seconds,
-                        MessageAttributeNames=["All"],
+                try:
+                    response = await anyio.to_thread.run_sync(
+                        lambda: sqs_client.receive_message(
+                            QueueUrl=config.read_queue_url,
+                            MaxNumberOfMessages=config.max_messages,
+                            WaitTimeSeconds=config.wait_time_seconds,
+                            VisibilityTimeout=config.visibility_timeout_seconds,
+                            MessageAttributeNames=["All"],
+                        )
                     )
-                )
-                messages = response.get("Messages", [])
-                if messages:
-                    await process_sqs_message(messages, sqs_client, config.read_queue_url, read_stream_writer)
-                else:
-                    await anyio.sleep(config.poll_interval_seconds)
+                    messages = response.get("Messages", [])
+                    if messages:
+                        await process_sqs_message(messages, sqs_client, config.read_queue_url, read_stream_writer)
+                    else:
+                        await anyio.sleep(config.poll_interval_seconds)
+                except Exception as e:
+                    logger.warning(f"Error receiving messages from SQS: {e}")
+                    # Brief delay before retrying to avoid tight error loops
+                    await anyio.sleep(min(config.poll_interval_seconds, 1.0))
 
     async def sqs_writer() -> None:
         async with write_stream_reader:
@@ -89,8 +98,9 @@ async def sqs_client(
                             MessageAttributes=message_attributes,
                         )
                     )
-                except Exception:
-                    continue
+                except Exception as e:
+                    logger.warning(f"Error sending message to SQS: {e}")
+                    # Continue processing other messages even if one fails
 
     if config.transport_timeout_seconds is None:
         async with anyio.create_task_group() as tg:
@@ -99,15 +109,10 @@ async def sqs_client(
             try:
                 yield read_stream, write_stream
             finally:
-                await read_stream_writer.aclose()
-                await write_stream.aclose()
+                tg.cancel_scope.cancel()
     else:
         with anyio.move_on_after(config.transport_timeout_seconds):
             async with anyio.create_task_group() as tg:
                 tg.start_soon(sqs_reader)
                 tg.start_soon(sqs_writer)
-                try:
-                    yield read_stream, write_stream
-                finally:
-                    await read_stream_writer.aclose()
-                    await write_stream.aclose()
+                yield read_stream, write_stream
