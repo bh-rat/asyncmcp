@@ -34,13 +34,21 @@ uv run setup.py
 ### 3. Start the MCP Transport Server (Terminal 1)
 
 ```bash
+# Using SNS-SQS transport (default)
 uv run website_server.py
+
+# Using SQS-only transport
+uv run website_server.py --transport sqs
 ```
 
 ### 4. Start the CLI (Terminal 2) 
 
 ```bash
+# Using SNS-SQS transport (default)
 uv run website_client.py
+
+# Using SQS-only transport
+uv run website_client.py --transport sqs
 ```
 
 ### 5. Try the workflow
