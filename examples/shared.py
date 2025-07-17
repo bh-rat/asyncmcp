@@ -19,6 +19,7 @@ import mcp.types as types
 from mcp.shared.message import SessionMessage
 from asyncmcp.sns_sqs.utils import SnsSqsTransportConfig
 from asyncmcp.sqs.utils import SqsTransportConfig
+from asyncmcp.webhook.utils import WebhookTransportConfig
 
 # AWS LocalStack configuration
 AWS_CONFIG = {
@@ -39,6 +40,7 @@ RESOURCES = {
 # Transport types
 TRANSPORT_SNS_SQS = "sns-sqs"
 TRANSPORT_SQS = "sqs"
+TRANSPORT_WEBHOOK = "webhook"
 
 # Common MCP configuration
 DEFAULT_INIT_PARAMS = {
@@ -90,8 +92,19 @@ def print_json(data: Dict[str, Any], title: str = ""):
 
 def create_client_transport_config(
     client_id: str = "mcp-client", timeout: Optional[float] = None, transport_type: str = TRANSPORT_SNS_SQS
-) -> Union[Tuple[SnsSqsTransportConfig, Any, Any], Tuple[SqsTransportConfig, Any, None]]:
+) -> Union[Tuple[SnsSqsTransportConfig, Any, Any], Tuple[SqsTransportConfig, Any, None], Tuple[WebhookTransportConfig, None, None]]:
     """Create a standard client transport configuration"""
+    if transport_type == TRANSPORT_WEBHOOK:
+        config = WebhookTransportConfig(
+            server_host="localhost",
+            server_port=8000,
+            webhook_host="localhost", 
+            webhook_port=8001,
+            client_id=client_id,
+            transport_timeout_seconds=timeout,
+        )
+        return config, None, None
+    
     sqs_client, sns_client = setup_aws_clients()
 
     if transport_type == TRANSPORT_SNS_SQS:
@@ -120,8 +133,17 @@ def create_client_transport_config(
 
 def create_server_transport_config(
     transport_type: str = TRANSPORT_SNS_SQS,
-) -> Union[Tuple[SnsSqsTransportConfig, Any, Any], Tuple[SqsTransportConfig, Any, None]]:
+) -> Union[Tuple[SnsSqsTransportConfig, Any, Any], Tuple[SqsTransportConfig, Any, None], Tuple[WebhookTransportConfig, None, None]]:
     """Create a standard server transport configuration"""
+    if transport_type == TRANSPORT_WEBHOOK:
+        config = WebhookTransportConfig(
+            server_host="localhost",
+            server_port=8000,
+            webhook_host="localhost",
+            webhook_port=8001,
+        )
+        return config, None, None
+    
     sqs_client, sns_client = setup_aws_clients()
 
     if transport_type == TRANSPORT_SNS_SQS:
@@ -502,7 +524,7 @@ def ensure_localstack_running():
 
 
 # Ensure LocalStack is running before setup
-ensure_localstack_running()
+# ensure_localstack_running()
 
 # Create AWS clients
 sqs_client, sns_client = setup_aws_clients()

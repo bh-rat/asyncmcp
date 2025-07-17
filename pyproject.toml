@@ -26,8 +26,11 @@ classifiers = [
 dependencies = [
     "anyio>=4.9.0",
     "boto3>=1.38.36,<2.0.0",
+    "httpx>=0.28.1",
     "mcp>=1.9.4,<2.0.0",
     "orjson>=3.10.0,<4.0.0",
+    "starlette>=0.47.1",
+    "uvicorn>=0.35.0",
 ]
 
 [project.optional-dependencies]

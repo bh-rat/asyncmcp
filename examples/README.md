@@ -39,6 +39,9 @@ uv run website_server.py
 
 # Using SQS-only transport
 uv run website_server.py --transport sqs
+
+# Using Webhook transport
+uv run webhook_server.py --server-port 8000
 ```
 
 ### 4. Start the CLI (Terminal 2) 
@@ -49,6 +52,9 @@ uv run website_client.py
 
 # Using SQS-only transport
 uv run website_client.py --transport sqs
+
+# Using Webhook transport
+uv run webhook_client.py --server-port 8000 --webhook-port 8001
 ```
 
 ### 5. Try the workflow
@@ -77,3 +83,47 @@ call fetch url=https://google.com
 ```
 
 The whole MCP communication happened through queues and topics.
+
+## Webhook Transport
+
+The webhook transport provides HTTP-based communication where:
+- Client sends HTTP POST requests to the server
+- Server responds via webhooks to the client-provided URL
+- Session management with initialization flow
+
+### Webhook Flow
+
+1. **Initialization**: Client sends `initialize` request with webhook URL in `_meta` field
+2. **Session Creation**: Server creates session and stores webhook URL
+3. **Request/Response**: Client sends HTTP requests, server responds via webhooks
+4. **Session Management**: Server tracks session state (init_pending → initialized)
+
+### Usage
+
+```bash
+# Terminal 1: Start webhook server
+uv run webhook_server.py --server-port 8000
+
+# Terminal 2: Start webhook client
+uv run webhook_client.py --server-port 8000 --webhook-port 8001
+```
+
+### Example Session
+
+```
+🔗 Connected to MCP transport
+> init
+📤 Sending initialize request...
+✅ Initialized with server: mcp-website-fetcher
+📤 Sent initialized notification
+> tools
+📤 Sending tools/list request...
+✅ Found 1 tools:
+   • fetch: Fetches a website and returns its content
+> call fetch url=https://google.com
+📤 Sending tools/call request...
+✅ Tool result:
+   📄 <!doctype html><html itemscope="" ...
+```
+
+The MCP communication happens through HTTP requests and webhook responses.
