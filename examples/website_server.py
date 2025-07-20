@@ -1,13 +1,20 @@
-import anyio
+#!/usr/bin/env python3
 
+import anyio
 import click
 import mcp.types as types
-from mcp.server.lowlevel import Server
+from mcp.server.server import Server
 from mcp.shared._httpx_utils import create_mcp_http_client
 
 from asyncmcp.sns_sqs.server import sns_sqs_server
-from asyncmcp.sqs.server import sqs_server
-from shared import create_server_transport_config, print_colored, TRANSPORT_SNS_SQS, TRANSPORT_SQS
+from asyncmcp.sqs.manager import SQSSessionManager
+from shared import (
+    create_server_transport_config,
+    print_colored,
+    fetch_website,
+    TRANSPORT_SNS_SQS,
+    TRANSPORT_SQS,
+)
 
 
 async def fetch_website(
@@ -67,15 +74,31 @@ def main(transport) -> int:
         server_configuration, sqs_client, sns_client = create_server_transport_config(transport)
 
         if transport == TRANSPORT_SNS_SQS:
-            server = sns_sqs_server
-            server_args = (server_configuration, sqs_client, sns_client)
+            async with sns_sqs_server(server_configuration, sqs_client, sns_client) as (read_stream, write_stream):
+                print_colored("📡 Server ready and listening for requests", "green")
+                await app.run(read_stream, write_stream, app.create_initialization_options())
         else:
-            server = sqs_server
-            server_args = (server_configuration, sqs_client)
+            # For SQS transport, use the session manager
+            session_manager = SQSSessionManager(app=app, config=server_configuration, sqs_client=sqs_client)
 
-        async with server(*server_args) as (read_stream, write_stream):
-            print_colored("📡 Server ready and listening for requests", "green")
-            await app.run(read_stream, write_stream, app.create_initialization_options())
+            async with session_manager.run():
+                print_colored("📡 SQS server ready and listening for requests", "green")
+                print_colored("📝 Send an 'initialize' request to start a session", "cyan")
+
+                # Keep the server running
+                try:
+                    while True:
+                        await anyio.sleep(10)
+                        # Optionally show session stats
+                        stats = session_manager.get_all_sessions()
+                        if stats:
+                            print(f"🔗 Active sessions: {len(stats)}")
+                            for session_id, stat in stats.items():
+                                terminated = stat.get("terminated", False)
+                                status = "terminated" if terminated else "active"
+                                print(f"  Session {session_id[:8]}...: {status}")
+                except KeyboardInterrupt:
+                    print_colored("🛑 Shutting down server...", "yellow")
 
     anyio.run(arun)
 

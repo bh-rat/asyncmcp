@@ -17,7 +17,7 @@ from asyncmcp.sqs.server import sqs_server
 
 __all__ = [
     "SnsSqsTransportConfig",
-    "sns_sqs_client", 
+    "sns_sqs_client",
     "sns_sqs_server",
     "SqsTransportConfig",
     "sqs_client",

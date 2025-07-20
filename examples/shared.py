@@ -107,8 +107,7 @@ def create_client_transport_config(
         return config, sqs_client, sns_client
     else:  # SQS only
         config = SqsTransportConfig(
-            read_queue_url=RESOURCES["client_response_queue"],
-            write_queue_url=RESOURCES["server_request_queue"],
+            read_queue_url=RESOURCES["server_request_queue"],  # Server's request queue URL
             max_messages=1,
             wait_time_seconds=5,
             poll_interval_seconds=2.0,
@@ -129,19 +128,23 @@ def create_server_transport_config(
             sqs_queue_url=RESOURCES["server_request_queue"],
             sns_topic_arn=RESOURCES["server_response_topic"],
             max_messages=10,
-            wait_time_seconds=5,
-            poll_interval_seconds=1.0,
+            wait_time_seconds=20,
+            poll_interval_seconds=5.0,
         )
         return config, sqs_client, sns_client
-    else:  # SQS only
+    else:  # SQS only - server only needs to know where to read requests
         config = SqsTransportConfig(
             read_queue_url=RESOURCES["server_request_queue"],
-            write_queue_url=RESOURCES["client_response_queue"],
             max_messages=10,
-            wait_time_seconds=5,
-            poll_interval_seconds=1.0,
+            wait_time_seconds=20,
+            poll_interval_seconds=5.0,
         )
         return config, sqs_client, None
+
+
+def get_client_response_queue_url() -> str:
+    """Get the client's response queue URL for dynamic queue configuration."""
+    return RESOURCES["client_response_queue"]
 
 
 async def send_mcp_request(write_stream, method: str, params: dict = None, request_id: int = 1) -> SessionMessage:

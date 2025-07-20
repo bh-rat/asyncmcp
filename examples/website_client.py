@@ -14,10 +14,12 @@ from mcp.shared.message import SessionMessage
 from asyncmcp.sns_sqs.client import sns_sqs_client
 from asyncmcp.sqs.client import sqs_client as pure_sqs_client
 from shared import (
-    print_colored,
-    print_json,
     create_client_transport_config,
-    send_mcp_request,
+    get_client_response_queue_url,
+    send_request,
+    send_initialized_notification,
+    handle_message,
+    print_colored,
     DEFAULT_INIT_PARAMS,
     TRANSPORT_SNS_SQS,
     TRANSPORT_SQS,
@@ -195,7 +197,9 @@ async def interactive_mode(transport_type: str = TRANSPORT_SNS_SQS):
             client_args = (transport_config, sqs_client, sns_client)
         else:
             client = pure_sqs_client
-            client_args = (transport_config, sqs_client)
+            # For SQS transport, we need to provide the client's response queue URL
+            client_response_queue = get_client_response_queue_url()
+            client_args = (transport_config, sqs_client, client_response_queue)
 
         async with client(*client_args) as (read_stream, write_stream):
             # Starts both message listener and command input concurrently

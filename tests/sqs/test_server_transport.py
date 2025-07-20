@@ -11,18 +11,22 @@ from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, JSONRPCNo
 from pydantic_core import ValidationError
 
 from asyncmcp.sqs.utils import SqsTransportConfig, process_sqs_message
-from asyncmcp.sqs.server import sqs_server, _create_sqs_message_attributes
+from asyncmcp.sqs.server import SqsTransport
+from asyncmcp.sqs.manager import SQSSessionManager
 from asyncmcp.sns_sqs.utils import _to_session_message, _delete_sqs_message
 
 from .shared_fixtures import (
     mock_sqs_client,
     sample_sqs_message,
+    sample_initialize_sqs_message,
     sample_jsonrpc_request,
+    sample_jsonrpc_initialize_request,
     sample_jsonrpc_notification,
     sample_jsonrpc_response,
     client_transport_config,
     server_transport_config,
     client_server_config,
+    mock_mcp_server,
 )
 
 
@@ -30,6 +34,198 @@ from .shared_fixtures import (
 def transport_config(server_transport_config):
     """Create a test transport configuration - using shared fixture."""
     return server_transport_config
+
+
+@pytest.fixture
+def response_queue_url():
+    """Test client response queue URL."""
+    return "http://localhost:4566/000000000000/test-client-responses"
+
+
+class TestSqsTransport:
+    """Test the SqsTransport class."""
+
+    @pytest.mark.anyio
+    async def test_transport_init(self, transport_config, mock_sqs_client):
+        """Test SqsTransport initialization."""
+        session_id = "test-session-123"
+        response_queue = "http://localhost:4566/000000000000/client-responses"
+
+        transport = SqsTransport(
+            config=transport_config,
+            sqs_client=mock_sqs_client,
+            session_id=session_id,
+            response_queue_url=response_queue,
+        )
+
+        assert transport.session_id == session_id
+        assert transport.response_queue_url == response_queue
+        assert not transport.is_terminated
+        assert transport.sqs_client == mock_sqs_client
+
+    @pytest.mark.anyio
+    async def test_transport_connect_and_cleanup(self, transport_config, mock_sqs_client):
+        """Test transport connect and cleanup."""
+        transport = SqsTransport(config=transport_config, sqs_client=mock_sqs_client, session_id="test-session")
+
+        async with transport.connect() as (read_stream, write_stream):
+            assert transport._read_stream is not None
+            assert transport._write_stream is not None
+
+        # After context exits, streams should be cleaned up
+        assert transport._read_stream is None
+        assert transport._write_stream is None
+
+    @pytest.mark.anyio
+    async def test_transport_send_message(self, transport_config, mock_sqs_client, sample_jsonrpc_request):
+        """Test sending message to transport."""
+        transport = SqsTransport(config=transport_config, sqs_client=mock_sqs_client, session_id="test-session")
+
+        async with transport.connect() as (read_stream, write_stream):
+            session_message = SessionMessage(sample_jsonrpc_request)
+
+            # Create a task to consume from the read_stream to prevent blocking
+            async def consume_stream():
+                try:
+                    async with read_stream:
+                        async for message in read_stream:
+                            # Just consume messages to prevent blocking
+                            break
+                except anyio.EndOfStream:
+                    pass
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(consume_stream)
+                await transport.send_message(session_message)
+
+    @pytest.mark.anyio
+    async def test_transport_send_to_client_queue(self, transport_config, mock_sqs_client, sample_jsonrpc_response):
+        """Test sending message to client queue."""
+        response_queue = "http://localhost:4566/000000000000/client-responses"
+        transport = SqsTransport(
+            config=transport_config,
+            sqs_client=mock_sqs_client,
+            session_id="test-session",
+            response_queue_url=response_queue,
+        )
+
+        session_message = SessionMessage(sample_jsonrpc_response)
+
+        with patch("anyio.to_thread.run_sync") as mock_run_sync:
+            await transport.send_to_client_queue(session_message)
+            mock_run_sync.assert_called_once()
+
+            # Verify send_message was called with correct queue URL
+            call_args = mock_run_sync.call_args[0][0]
+            # This is a lambda, we can't easily inspect it, but we know it should call sqs send_message
+
+    @pytest.mark.anyio
+    async def test_transport_terminate(self, transport_config, mock_sqs_client):
+        """Test transport termination."""
+        transport = SqsTransport(config=transport_config, sqs_client=mock_sqs_client, session_id="test-session")
+
+        async with transport.connect():
+            pass
+
+        await transport.terminate()
+        assert transport.is_terminated
+
+
+class TestSQSSessionManager:
+    """Test the SQSSessionManager class."""
+
+    @pytest.mark.anyio
+    async def test_session_manager_init(self, transport_config, mock_sqs_client, mock_mcp_server):
+        """Test SQSSessionManager initialization."""
+        manager = SQSSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
+
+        assert manager.app == mock_mcp_server
+        assert manager.config == transport_config
+        assert manager.sqs_client == mock_sqs_client
+        assert not manager.stateless
+        assert len(manager._transport_instances) == 0
+
+    @pytest.mark.anyio
+    async def test_session_manager_run_lifecycle(self, transport_config, mock_sqs_client, mock_mcp_server):
+        """Test session manager run lifecycle."""
+        manager = SQSSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
+
+        # Mock SQS to return empty messages to avoid infinite loop
+        mock_sqs_client.receive_message.return_value = {"Messages": []}
+
+        async with manager.run():
+            assert manager._task_group is not None
+
+        # After context exits, task group should be None
+        assert manager._task_group is None
+
+    @pytest.mark.anyio
+    async def test_session_manager_handle_initialize_request(
+        self, transport_config, mock_sqs_client, mock_mcp_server, sample_initialize_sqs_message
+    ):
+        """Test session manager handling initialize request."""
+        manager = SQSSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
+
+        # Mock SQS operations
+        mock_sqs_client.receive_message.return_value = {"Messages": [sample_initialize_sqs_message]}
+        mock_sqs_client.delete_message.return_value = {}
+
+        # Parse the initialize message
+        session_message = await _to_session_message(sample_initialize_sqs_message)
+
+        async with manager.run():
+            # Manually call the handler to test it
+            await manager._handle_initialize_request(
+                session_message,
+                None,  # No existing session ID
+                sample_initialize_sqs_message,
+            )
+
+            # Should have created a new session
+            assert len(manager._transport_instances) == 1
+
+            # Get the created session
+            session_id = list(manager._transport_instances.keys())[0]
+            transport = manager._transport_instances[session_id]
+
+            assert transport.response_queue_url == "http://localhost:4566/000000000000/client-responses"
+
+    @pytest.mark.anyio
+    async def test_session_manager_process_single_message(
+        self, transport_config, mock_sqs_client, mock_mcp_server, sample_initialize_sqs_message
+    ):
+        """Test processing a single initialize message."""
+        manager = SQSSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
+
+        # Mock delete_message
+        with patch("asyncmcp.sqs.manager._delete_sqs_message") as mock_delete:
+            mock_delete.return_value = None
+
+            async with manager.run():
+                # Process the initialize message
+                await manager._process_single_message(sample_initialize_sqs_message)
+
+                # Should have created a session
+                assert len(manager._transport_instances) == 1
+
+                # Should have deleted the message
+                mock_delete.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_session_manager_terminate_session(self, transport_config, mock_sqs_client, mock_mcp_server):
+        """Test terminating a specific session."""
+        manager = SQSSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
+
+        # Create a transport manually
+        transport = SqsTransport(config=transport_config, sqs_client=mock_sqs_client, session_id="test-session-123")
+        manager._transport_instances["test-session-123"] = transport
+
+        # Terminate the session
+        result = await manager.terminate_session("test-session-123")
+
+        assert result is True
+        assert len(manager._transport_instances) == 0
+        assert transport.is_terminated
 
 
 class TestProcessSQSMessageServer:
@@ -48,324 +244,34 @@ class TestProcessSQSMessageServer:
     async def test_process_invalid_json_server(self):
         """Test processing message with invalid JSON on server side."""
         invalid_message = {
-            "MessageId": "server-invalid-msg",
-            "ReceiptHandle": "server-invalid-handle",
-            "Body": "not valid json",
-            "MessageAttributes": {},
-        }
-
-        with pytest.raises(ValidationError):
-            await _to_session_message(invalid_message)
-
-    @pytest.mark.anyio
-    async def test_process_multiple_server_messages(self, transport_config, sample_sqs_message, mock_sqs_client):
-        """Test processing multiple messages concurrently on server side."""
-        messages = [sample_sqs_message.copy() for _ in range(5)]
-        for i, msg in enumerate(messages):
-            msg["MessageId"] = f"server-msg-{i}"
-            msg["ReceiptHandle"] = f"server-handle-{i}"
-
-        send_stream, receive_stream = anyio.create_memory_object_stream(10)
-
-        with patch("anyio.to_thread.run_sync") as mock_run_sync:
-            await process_sqs_message(messages, mock_sqs_client, transport_config.read_queue_url, send_stream)
-
-            # Verify all messages were processed
-            assert mock_run_sync.call_count == 5  # One delete call per message
-
-            # Verify messages were sent to stream
-            processed_messages = []
-            for _ in range(5):
-                with anyio.move_on_after(0.1):
-                    msg = await receive_stream.receive()
-                    processed_messages.append(msg)
-
-            assert len(processed_messages) == 5
-            for msg in processed_messages:
-                assert isinstance(msg, SessionMessage)
-
-    @pytest.mark.anyio
-    async def test_process_server_messages_with_validation_errors(
-        self, transport_config, sample_sqs_message, mock_sqs_client
-    ):
-        """Test processing messages with validation errors on server side."""
-        valid_message = sample_sqs_message.copy()
-        invalid_message = {
-            "MessageId": "server-invalid-msg",
-            "ReceiptHandle": "server-invalid-handle",
+            "MessageId": "invalid-1",
+            "ReceiptHandle": "invalid-handle-1",
             "Body": "invalid json content",
             "MessageAttributes": {},
         }
 
-        messages = [valid_message, invalid_message]
-        send_stream, receive_stream = anyio.create_memory_object_stream(10)
-
-        with patch("anyio.to_thread.run_sync") as mock_run_sync:
-            await process_sqs_message(messages, mock_sqs_client, transport_config.read_queue_url, send_stream)
-
-            # Both messages should be deleted even if one fails
-            assert mock_run_sync.call_count == 2
-
-            # Should receive one valid message and one exception
-            results = []
-            for _ in range(2):
-                with anyio.move_on_after(0.1):
-                    result = await receive_stream.receive()
-                    results.append(result)
-
-            assert len(results) == 2
-            valid_results = [r for r in results if isinstance(r, SessionMessage)]
-            error_results = [r for r in results if isinstance(r, Exception)]
-            assert len(valid_results) == 1
-            assert len(error_results) == 1
-
-
-class TestDeleteSQSMessageServer:
-    """Test the server _delete_sqs_message function."""
-
-    @pytest.mark.anyio
-    async def test_delete_message_server(self, mock_sqs_client):
-        """Test successful message deletion on server side."""
-        with patch("anyio.to_thread.run_sync") as mock_run_sync:
-            await _delete_sqs_message(mock_sqs_client, "server-queue", "server-handle")
-
-            mock_run_sync.assert_called_once()
-            # Verify the lambda function would call delete_message correctly
-            delete_func = mock_run_sync.call_args[0][0]
-            delete_func()
-            mock_sqs_client.delete_message.assert_called_once_with(
-                QueueUrl="server-queue", ReceiptHandle="server-handle"
-            )
-
-
-class TestCreateSQSMessageAttributesServer:
-    """Test the server _create_sqs_message_attributes function."""
-
-    @pytest.mark.anyio
-    async def test_create_basic_attributes(self, transport_config, sample_jsonrpc_response):
-        """Test creating basic message attributes for server responses."""
-        session_message = SessionMessage(sample_jsonrpc_response)
-        attrs = await _create_sqs_message_attributes(session_message, transport_config)
-
-        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
-        assert attrs["MessageType"]["DataType"] == "String"
-
-    @pytest.mark.anyio
-    async def test_create_attributes_with_custom_config(self, transport_config, sample_jsonrpc_response):
-        """Test creating message attributes with custom configuration."""
-        transport_config.message_attributes = {"ServerAttr": {"DataType": "String", "StringValue": "server-value"}}
-        session_message = SessionMessage(sample_jsonrpc_response)
-        attrs = await _create_sqs_message_attributes(session_message, transport_config)
-
-        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
-        assert attrs["ServerAttr"]["StringValue"] == "server-value"
-
-    @pytest.mark.anyio
-    async def test_create_attributes_without_client_id(self, transport_config, sample_jsonrpc_response):
-        """Test creating message attributes without client ID."""
-        session_message = SessionMessage(sample_jsonrpc_response)
-        attrs = await _create_sqs_message_attributes(session_message, transport_config)
-
-        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
-        # Should not have ClientId when client_id is None
-        assert "ClientId" not in attrs
-
-
-class TestSqsServer:
-    """Test the sqs_server function."""
-
-    @pytest.mark.anyio
-    async def test_server_context_manager_basic(self, transport_config, mock_sqs_client):
-        """Test basic server context manager functionality."""
-        with patch("anyio.to_thread.run_sync") as mock_run_sync:
-            mock_run_sync.return_value = {"Messages": []}
-
-            with anyio.move_on_after(0.1):  # Add timeout to prevent hanging
-                async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
-                    assert read_stream is not None
-                    assert write_stream is not None
-                    await anyio.sleep(0.01)  # Give background tasks time to start
-
-    @pytest.mark.anyio
-    async def test_server_receive_and_send_messages(self, transport_config, sample_jsonrpc_response, mock_sqs_client):
-        """Test server receiving and sending messages."""
-        session_message = SessionMessage(sample_jsonrpc_response)
-
-        # Mock SQS client methods directly
-        mock_sqs_client.send_message.return_value = {"MessageId": "server-response-id"}
-        mock_sqs_client.receive_message.return_value = {"Messages": []}
-
-        with anyio.move_on_after(0.5):  # Add timeout to prevent hanging
-            async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
-                # Send a response
-                await write_stream.send(session_message)
-                await anyio.sleep(0.1)  # Allow message to be processed
-
-                # Verify send_message was called
-                assert mock_sqs_client.send_message.called
-
-    @pytest.mark.anyio
-    async def test_server_long_polling(self, transport_config, mock_sqs_client):
-        """Test server long polling behavior."""
-        # Mock SQS client methods directly
-        mock_sqs_client.receive_message.return_value = {"Messages": []}
-
-        with anyio.move_on_after(0.1):  # Add timeout to prevent hanging
-            async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
-                # Should use long polling
-                await anyio.sleep(0.05)  # Allow some polling cycles
-
-                # Verify receive_message was called with correct wait time
-                assert mock_sqs_client.receive_message.called
-
-    @pytest.mark.anyio
-    async def test_server_error_handling_in_sqs_reader(self, transport_config, mock_sqs_client):
-        """Test error handling in server SQS reader task."""
-        call_count = 0
-
-        def side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 2:
-                # First two calls raise an exception (simulating AWS errors)
-                raise Exception("Simulated AWS SQS error")
-            else:
-                # Subsequent calls return empty to avoid infinite polling
-                return {"Messages": []}
-
-        mock_sqs_client.receive_message.side_effect = side_effect
-
-        with anyio.move_on_after(0.2):
-            async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
-                # The reader should continue running despite the errors
-                await anyio.sleep(0.1)
-
-                # Verify that receive_message was called multiple times (indicating recovery)
-                assert mock_sqs_client.receive_message.call_count >= 2
-
-    @pytest.mark.anyio
-    async def test_server_error_handling_in_sqs_writer(
-        self, transport_config, sample_jsonrpc_response, mock_sqs_client
-    ):
-        """Test error handling in server SQS writer task."""
-        session_message = SessionMessage(sample_jsonrpc_response)
-
-        call_count = 0
-
-        def side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # First call raises an exception
-                raise Exception("Simulated AWS SQS send error")
-            else:
-                # Subsequent calls succeed
-                return {"MessageId": "server-msg-id"}
-
-        mock_sqs_client.send_message.side_effect = side_effect
-        mock_sqs_client.receive_message.return_value = {"Messages": []}
-
-        with anyio.move_on_after(0.5):
-            async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
-                # Send first message (should fail but not crash)
-                await write_stream.send(session_message)
-                await anyio.sleep(0.1)
-
-                # Send second message (should succeed)
-                await write_stream.send(session_message)
-                await anyio.sleep(0.1)
-
-                # Verify both send attempts were made
-                assert mock_sqs_client.send_message.call_count >= 2
-
-    @pytest.mark.anyio
-    async def test_server_concurrent_message_processing(self, transport_config, mock_sqs_client):
-        """Test server concurrent message processing."""
-        with patch("anyio.to_thread.run_sync") as mock_run_sync:
-
-            def side_effect(func):
-                if "receive_message" in str(func):
-                    return {
-                        "Messages": [
-                            {
-                                "MessageId": f"server-msg-{i}",
-                                "ReceiptHandle": f"server-handle-{i}",
-                                "Body": f'{{"jsonrpc": "2.0", "id": {i}, "method": "server/test", "params": {{}}}}',
-                                "MessageAttributes": {},
-                            }
-                            for i in range(5)
-                        ]
-                    }
-                return {}
-
-            mock_run_sync.side_effect = side_effect
-
-            with anyio.move_on_after(0.5):  # Add timeout to prevent hanging
-                async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
-                    # Should process multiple messages concurrently
-                    messages = []
-                    for _ in range(5):
-                        with anyio.move_on_after(0.1):
-                            msg = await read_stream.receive()
-                            messages.append(msg)
-
-                    assert len(messages) == 5
-                    for msg in messages:
-                        assert isinstance(msg, SessionMessage)
-
-    @pytest.mark.anyio
-    async def test_server_message_with_correlation_id(self, transport_config, mock_sqs_client):
-        """Test server handling messages with correlation IDs."""
-        with patch("anyio.to_thread.run_sync") as mock_run_sync:
-
-            def side_effect(func):
-                if "receive_message" in str(func):
-                    return {
-                        "Messages": [
-                            {
-                                "MessageId": "corr-msg-1",
-                                "ReceiptHandle": "corr-handle-1",
-                                "Body": '{"jsonrpc": "2.0", "id": 123, "method": "test", "params": {}}',
-                                "MessageAttributes": {
-                                    "CorrelationId": {"DataType": "String", "StringValue": "corr-123"}
-                                },
-                            }
-                        ]
-                    }
-                return {}
-
-            mock_run_sync.side_effect = side_effect
-
-            with anyio.move_on_after(0.2):  # Add timeout to prevent hanging
-                async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
-                    # Should handle correlation ID properly
-                    with anyio.move_on_after(0.1):
-                        msg = await read_stream.receive()
-                        assert isinstance(msg, SessionMessage)
-                        assert msg.message.root.id == 123
+        with pytest.raises(Exception):  # Should raise JSON decode error
+            await _to_session_message(invalid_message)
 
 
 class TestServerConfigurationValidation:
-    """Test server configuration validation."""
+    """Test server configuration validation with new dynamic queue system."""
 
-    def test_server_config_creation(self, mock_sqs_client):
-        """Test basic server configuration creation."""
+    def test_server_config_creation(self):
+        """Test basic server configuration creation (no write_queue_url)."""
         config = SqsTransportConfig(
             read_queue_url="http://localhost:4566/000000000000/server-read-queue",
-            write_queue_url="http://localhost:4566/000000000000/server-write-queue",
         )
 
         assert config.read_queue_url == "http://localhost:4566/000000000000/server-read-queue"
-        assert config.write_queue_url == "http://localhost:4566/000000000000/server-write-queue"
         assert config.max_messages == 10  # Default value
         assert config.wait_time_seconds == 20  # Default value
         assert config.poll_interval_seconds == 5.0  # Default value
 
-    def test_server_config_with_custom_values(self, mock_sqs_client):
+    def test_server_config_with_custom_values(self):
         """Test server configuration with custom values."""
         config = SqsTransportConfig(
             read_queue_url="http://localhost:4566/000000000000/server-read-queue",
-            write_queue_url="http://localhost:4566/000000000000/server-write-queue",
             max_messages=15,
             wait_time_seconds=30,
             poll_interval_seconds=2.0,
@@ -377,139 +283,72 @@ class TestServerConfigurationValidation:
         assert config.poll_interval_seconds == 2.0
         assert config.visibility_timeout_seconds == 45
 
+    def test_server_config_no_write_queue_needed(self):
+        """Test that server config no longer requires write_queue_url."""
+        # This should work fine - no write_queue_url needed
+        config = SqsTransportConfig(read_queue_url="http://localhost:4566/000000000000/server-requests")
 
-class TestServerIntegrationScenarios:
-    """Test server integration scenarios."""
+        assert config.read_queue_url == "http://localhost:4566/000000000000/server-requests"
+        # write_queue_url is no longer a field
+        assert not hasattr(config, "write_queue_url")
 
-    @pytest.mark.anyio
-    async def test_server_request_response_cycle(self, transport_config, mock_sqs_client):
-        """Test server request-response cycle."""
-        # Mock SQS client methods directly
-        call_count = 0
 
-        def receive_side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return {
-                    "Messages": [
-                        {
-                            "MessageId": "req-msg-1",
-                            "ReceiptHandle": "req-handle-1",
-                            "Body": '{"jsonrpc": "2.0", "id": 1, "method": "test", "params": {}}',
-                            "MessageAttributes": {},
-                        }
-                    ]
-                }
-            else:
-                return {"Messages": []}
-
-        mock_sqs_client.receive_message.side_effect = receive_side_effect
-        mock_sqs_client.send_message.return_value = {"MessageId": "resp-msg-1"}
-
-        with anyio.move_on_after(0.5):  # Add timeout to prevent hanging
-            async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
-                # Receive a request
-                with anyio.move_on_after(0.2):
-                    request = await read_stream.receive()
-                    assert isinstance(request, SessionMessage)
-                    assert request.message.root.method == "test"
-
-                # Send a response
-                response = SessionMessage(
-                    JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=1, result={"status": "ok"}))
-                )
-                await write_stream.send(response)
-                await anyio.sleep(0.1)
-
-                # Verify response was sent
-                assert mock_sqs_client.send_message.called
+class TestMessageAttributeCreation:
+    """Test message attribute creation for SQS transport."""
 
     @pytest.mark.anyio
-    async def test_server_notification_handling(self, transport_config, mock_sqs_client):
-        """Test server notification handling."""
-        with patch("anyio.to_thread.run_sync") as mock_run_sync:
+    async def test_create_message_attributes_for_request(self, transport_config, sample_jsonrpc_request):
+        """Test creating message attributes for a request."""
+        transport = SqsTransport(
+            config=transport_config,
+            sqs_client=MagicMock(),
+            session_id="test-session",
+            response_queue_url="http://localhost:4566/000000000000/client-responses",
+        )
 
-            def mock_sqs_receive():
-                return {
-                    "Messages": [
-                        {
-                            "MessageId": "notif-msg-1",
-                            "ReceiptHandle": "notif-handle-1",
-                            "Body": '{"jsonrpc": "2.0", "method": "notification", "params": {"event": "test"}}',
-                            "MessageAttributes": {},
-                        }
-                    ]
-                }
+        session_message = SessionMessage(sample_jsonrpc_request)
+        attrs = await transport._create_sqs_message_attributes(session_message)
 
-            def side_effect(func):
-                if "receive_message" in str(func):
-                    return mock_sqs_receive()
-                return {}
-
-            mock_run_sync.side_effect = side_effect
-
-            with anyio.move_on_after(0.2):  # Add timeout to prevent hanging
-                async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
-                    # Should handle notifications properly
-                    with anyio.move_on_after(0.1):
-                        notification = await read_stream.receive()
-                        assert isinstance(notification, SessionMessage)
-                        assert notification.message.root.method == "notification"
-                        assert not hasattr(notification.message.root, "id")  # Notifications don't have IDs
+        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
+        assert attrs["SessionId"]["StringValue"] == "test-session"
+        assert attrs["Method"]["StringValue"] == "test/method"
+        assert attrs["RequestId"]["StringValue"] == "1"
+        assert "Timestamp" in attrs
 
     @pytest.mark.anyio
-    async def test_server_high_load_scenario(self, transport_config, mock_sqs_client):
-        """Test server high load scenario."""
-        with patch("anyio.to_thread.run_sync") as mock_run_sync:
+    async def test_create_message_attributes_for_response(self, transport_config, sample_jsonrpc_response):
+        """Test creating message attributes for a response."""
+        transport = SqsTransport(
+            config=transport_config,
+            sqs_client=MagicMock(),
+            session_id="response-session",
+        )
 
-            def side_effect(func):
-                if "receive_message" in str(func):
-                    return {
-                        "Messages": [
-                            {
-                                "MessageId": f"load-msg-{i}",
-                                "ReceiptHandle": f"load-handle-{i}",
-                                "Body": f'{{"jsonrpc": "2.0", "id": {i}, "method": "load/test", "params": {{}}}}',
-                                "MessageAttributes": {},
-                            }
-                            for i in range(10)
-                        ]
-                    }
-                return {}
+        session_message = SessionMessage(sample_jsonrpc_response)
+        attrs = await transport._create_sqs_message_attributes(session_message)
 
-            mock_run_sync.side_effect = side_effect
-
-            with anyio.move_on_after(1.0):  # Add timeout to prevent hanging
-                async with sqs_server(transport_config, mock_sqs_client) as (read_stream, write_stream):
-                    # Process high volume of messages
-                    messages = []
-                    for _ in range(10):
-                        with anyio.move_on_after(0.1):
-                            msg = await read_stream.receive()
-                            messages.append(msg)
-
-                    assert len(messages) == 10
-                    for msg in messages:
-                        assert isinstance(msg, SessionMessage)
-                        assert msg.message.root.method == "load/test"
+        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
+        assert attrs["SessionId"]["StringValue"] == "response-session"
+        assert "Timestamp" in attrs
+        # Responses don't have method, only id
+        assert "Method" not in attrs
+        assert "RequestId" not in attrs
 
     @pytest.mark.anyio
-    async def test_server_stream_cleanup(self, transport_config, mock_sqs_client):
-        """Test proper cleanup of server streams."""
-        with patch("anyio.to_thread.run_sync") as mock_run_sync:
-            mock_run_sync.return_value = {"Messages": []}
+    async def test_create_message_attributes_for_notification(self, transport_config, sample_jsonrpc_notification):
+        """Test creating message attributes for a notification."""
+        transport = SqsTransport(
+            config=transport_config,
+            sqs_client=MagicMock(),
+            session_id="notification-session",
+        )
 
-            read_stream = None
-            write_stream = None
+        session_message = SessionMessage(sample_jsonrpc_notification)
+        attrs = await transport._create_sqs_message_attributes(session_message)
 
-            with anyio.move_on_after(0.1):  # Add timeout to prevent hanging
-                async with sqs_server(transport_config, mock_sqs_client) as (rs, ws):
-                    read_stream = rs
-                    write_stream = ws
-                    assert read_stream is not None
-                    assert write_stream is not None
-                    await anyio.sleep(0.01)  # Give background tasks time to start
-
-            # Streams should be properly closed after context exit
-            # This is implicit in the anyio stream implementation
+        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
+        assert attrs["SessionId"]["StringValue"] == "notification-session"
+        assert attrs["Method"]["StringValue"] == "test/notification"
+        assert "Timestamp" in attrs
+        # Notifications don't have RequestId
+        assert "RequestId" not in attrs

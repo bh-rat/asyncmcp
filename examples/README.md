@@ -6,6 +6,16 @@ The CLI allows to take actions and the server is an asyncmcp version of MCP's [f
 > [!CAUTION]
 > This server can access local/internal IP addresses and may represent a security risk. Exercise caution when using this MCP server to ensure this does not expose any sensitive data.
 
+## Dynamic Queue System
+
+The SQS transport now uses a **dynamic queue system** where:
+
+- **Server** listens on a single request queue for all clients
+- **Clients** specify their own response queue URL in the `initialize` request
+- Each client gets responses sent to their specific response queue
+- Multiple clients can connect simultaneously with different response queues
+
+This allows for better scalability and client isolation.
 
 ## Prerequisites
 
@@ -16,7 +26,7 @@ The CLI allows to take actions and the server is an asyncmcp version of MCP's [f
 ### 1. Run [localstack](https://www.localstack.cloud/)
 
 ```bash
-pip install localstack
+uv add localstack
 ```
 
 ```bash
@@ -37,9 +47,14 @@ uv run setup.py
 # Using SNS-SQS transport (default)
 uv run website_server.py
 
-# Using SQS-only transport
+# Using SQS-only transport with dynamic queues
 uv run website_server.py --transport sqs
 ```
+
+The SQS server will:
+- Listen for messages on the server request queue
+- Create new sessions when `initialize` requests arrive
+- Send responses to client-specific queues provided in the initialize request
 
 ### 4. Start the CLI (Terminal 2) 
 
@@ -47,9 +62,14 @@ uv run website_server.py --transport sqs
 # Using SNS-SQS transport (default)
 uv run website_client.py
 
-# Using SQS-only transport
+# Using SQS-only transport with dynamic queues
 uv run website_client.py --transport sqs
 ```
+
+The SQS client will:
+- Send its response queue URL in the `initialize` request parameters
+- Listen for responses on its own response queue
+- Allow the server to route responses correctly
 
 ### 5. Try the workflow
 
@@ -76,4 +96,19 @@ call fetch url=https://google.com
    📄 <!doctype html><html itemscope="" ...
 ```
 
-The whole MCP communication happened through queues and topics.
+The initialize request now includes the client's response queue URL:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {},
+    "clientInfo": {"name": "test-client", "version": "1.0"},
+    "response_queue_url": "http://localhost:4566/000000000000/mcp-consumer"
+  }
+}
+```
+
+The whole MCP communication happened through queues, with dynamic routing to client-specific response queues.
