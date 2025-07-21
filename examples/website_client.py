@@ -16,9 +16,7 @@ from asyncmcp.sqs.client import sqs_client as pure_sqs_client
 from shared import (
     create_client_transport_config,
     get_client_response_queue_url,
-    send_request,
-    send_initialized_notification,
-    handle_message,
+    send_mcp_request,
     print_colored,
     DEFAULT_INIT_PARAMS,
     TRANSPORT_SNS_SQS,

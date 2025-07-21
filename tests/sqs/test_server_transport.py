@@ -1,31 +1,26 @@
 """
 Comprehensive anyio fixture tests for SQS server transport module.
 """
-
+import pydantic_core
 import pytest
 from unittest.mock import patch, MagicMock
 
 import anyio
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, JSONRPCNotification
-from pydantic_core import ValidationError
 
-from asyncmcp.sqs.utils import SqsTransportConfig, process_sqs_message
+from asyncmcp.sqs.utils import SqsTransportConfig
 from asyncmcp.sqs.server import SqsTransport
-from asyncmcp.sqs.manager import SQSSessionManager
-from asyncmcp.sns_sqs.utils import _to_session_message, _delete_sqs_message
+from asyncmcp.sqs.manager import SqsSessionManager
+from asyncmcp.sns_sqs.utils import _to_session_message
 
 from .shared_fixtures import (
     mock_sqs_client,
     sample_sqs_message,
     sample_initialize_sqs_message,
     sample_jsonrpc_request,
-    sample_jsonrpc_initialize_request,
     sample_jsonrpc_notification,
     sample_jsonrpc_response,
-    client_transport_config,
     server_transport_config,
-    client_server_config,
     mock_mcp_server,
 )
 
@@ -131,13 +126,13 @@ class TestSqsTransport:
         assert transport.is_terminated
 
 
-class TestSQSSessionManager:
-    """Test the SQSSessionManager class."""
+class TestSqsSessionManager:
+    """Test the SqsSessionManager class."""
 
     @pytest.mark.anyio
     async def test_session_manager_init(self, transport_config, mock_sqs_client, mock_mcp_server):
-        """Test SQSSessionManager initialization."""
-        manager = SQSSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
+        """Test SqsSessionManager initialization."""
+        manager = SqsSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
 
         assert manager.app == mock_mcp_server
         assert manager.config == transport_config
@@ -148,7 +143,7 @@ class TestSQSSessionManager:
     @pytest.mark.anyio
     async def test_session_manager_run_lifecycle(self, transport_config, mock_sqs_client, mock_mcp_server):
         """Test session manager run lifecycle."""
-        manager = SQSSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
+        manager = SqsSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
 
         # Mock SQS to return empty messages to avoid infinite loop
         mock_sqs_client.receive_message.return_value = {"Messages": []}
@@ -164,7 +159,7 @@ class TestSQSSessionManager:
         self, transport_config, mock_sqs_client, mock_mcp_server, sample_initialize_sqs_message
     ):
         """Test session manager handling initialize request."""
-        manager = SQSSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
+        manager = SqsSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
 
         # Mock SQS operations
         mock_sqs_client.receive_message.return_value = {"Messages": [sample_initialize_sqs_message]}
@@ -195,7 +190,7 @@ class TestSQSSessionManager:
         self, transport_config, mock_sqs_client, mock_mcp_server, sample_initialize_sqs_message
     ):
         """Test processing a single initialize message."""
-        manager = SQSSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
+        manager = SqsSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
 
         # Mock delete_message
         with patch("asyncmcp.sqs.manager._delete_sqs_message") as mock_delete:
@@ -214,7 +209,7 @@ class TestSQSSessionManager:
     @pytest.mark.anyio
     async def test_session_manager_terminate_session(self, transport_config, mock_sqs_client, mock_mcp_server):
         """Test terminating a specific session."""
-        manager = SQSSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
+        manager = SqsSessionManager(app=mock_mcp_server, config=transport_config, sqs_client=mock_sqs_client)
 
         # Create a transport manually
         transport = SqsTransport(config=transport_config, sqs_client=mock_sqs_client, session_id="test-session-123")
@@ -250,7 +245,7 @@ class TestProcessSQSMessageServer:
             "MessageAttributes": {},
         }
 
-        with pytest.raises(Exception):  # Should raise JSON decode error
+        with pytest.raises(pydantic_core.ValidationError):
             await _to_session_message(invalid_message)
 
 

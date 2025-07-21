@@ -1,7 +1,7 @@
 """
 Comprehensive anyio fixture tests for SQS client transport module.
 """
-
+import pydantic_core
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -247,7 +247,7 @@ class TestProcessSQSMessage:
             "MessageAttributes": {},
         }
 
-        with pytest.raises(Exception):  # Should raise JSON decode error
+        with pytest.raises(pydantic_core.ValidationError):
             await _to_session_message(invalid_message)
 
 

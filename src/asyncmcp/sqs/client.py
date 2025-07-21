@@ -2,7 +2,8 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+from dataclasses import dataclass
 
 import anyio
 import anyio.lowlevel
@@ -16,6 +17,18 @@ from mcp.shared.message import SessionMessage
 from .utils import SqsTransportConfig, process_sqs_message
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ClientState:
+    """Simple state container for the session id to avoid nonlocal variables"""
+    session_id: Optional[str] = None
+    client_id: str = ""
+    
+    async def set_session_id_if_none(self, new_session_id: str) -> None:
+        """Thread-safe session ID initialization."""
+        if self.session_id is None:
+            self.session_id = new_session_id
 
 
 async def _create_sqs_message_attributes(
@@ -54,8 +67,10 @@ async def sqs_client(
     tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]],
     None,
 ]:
-    client_id = config.client_id or str(uuid.uuid4())
-    session_id = None
+    state = ClientState(
+        client_id=config.client_id or str(uuid.uuid4()),
+        session_id=None
+    )
 
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
@@ -66,8 +81,6 @@ async def sqs_client(
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
     async def sqs_reader() -> None:
-        # TODO : move away from nonlocal session_id to avoid race conditions and coupling
-        nonlocal session_id
         async with read_stream_writer:
             while True:
                 await anyio.lowlevel.checkpoint()
@@ -84,10 +97,10 @@ async def sqs_client(
                     messages = response.get("Messages", [])
                     if messages:
                         for message in messages:
-                            if session_id is None:
+                            if state.session_id is None:
                                 msg_attrs = message.get("MessageAttributes", {})
                                 if "SessionId" in msg_attrs:
-                                    session_id = msg_attrs["SessionId"]["StringValue"]
+                                    await state.set_session_id_if_none(msg_attrs["SessionId"]["StringValue"])
 
                         await process_sqs_message(messages, sqs_client, response_queue_url, read_stream_writer)
                     else:
@@ -97,14 +110,15 @@ async def sqs_client(
                     await anyio.sleep(min(config.poll_interval_seconds, 1.0))
 
     async def sqs_writer() -> None:
-        nonlocal session_id
         async with write_stream_reader:
             async for session_message in write_stream_reader:
                 await anyio.lowlevel.checkpoint()
                 try:
                     json_message = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
-                    message_attributes = await _create_sqs_message_attributes(session_message, config, client_id,
-                                                                              session_id)
+                    message_attributes = await _create_sqs_message_attributes(
+                        session_message, config, state.client_id, state.session_id
+                    )
+                    
                     # For initialize requests, add response_queue_url to the params
                     if (
                         isinstance(session_message.message.root, types.JSONRPCRequest)

@@ -11,7 +11,7 @@ from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, JSONRPCNotification, JSONRPCError
 
 from asyncmcp.sqs.client import sqs_client
-from asyncmcp.sqs.manager import SQSSessionManager
+from asyncmcp.sqs.manager import SqsSessionManager
 from asyncmcp.sqs.utils import SqsTransportConfig
 
 from .shared_fixtures import (
@@ -112,7 +112,7 @@ class TestSQSIntegrationWithDynamicQueues:
         client_sqs.send_message.return_value = {"MessageId": "client-request-1"}
 
         # Create session manager
-        session_manager = SQSSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
+        session_manager = SqsSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
 
         with anyio.move_on_after(1.0):  # Timeout to prevent hanging
             async with anyio.create_task_group() as tg:
@@ -215,7 +215,7 @@ class TestSQSIntegrationWithDynamicQueues:
         client_sqs.send_message.return_value = {"MessageId": "client-msg-1"}
 
         # Create session manager and pre-create a session
-        session_manager = SQSSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
+        session_manager = SqsSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
 
         with anyio.move_on_after(1.0):
             async with anyio.create_task_group() as tg:
@@ -339,7 +339,7 @@ class TestSQSIntegrationWithDynamicQueues:
         client1_sqs.receive_message.return_value = {"Messages": []}
         client2_sqs.receive_message.return_value = {"Messages": []}
 
-        session_manager = SQSSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
+        session_manager = SqsSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
 
         with anyio.move_on_after(1.0):
             async with session_manager.run():
@@ -381,7 +381,7 @@ class TestSQSIntegrationWithDynamicQueues:
         server_sqs.receive_message.side_effect = server_receive_side_effect
         server_sqs.delete_message.return_value = {}
 
-        session_manager = SQSSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
+        session_manager = SqsSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
 
         with anyio.move_on_after(0.5):
             async with session_manager.run():
@@ -439,7 +439,7 @@ class TestSQSIntegrationWithDynamicQueues:
         mock_error_server.run.side_effect = Exception("Simulated server crash")
         mock_error_server.create_initialization_options.return_value = {}
 
-        session_manager = SQSSessionManager(app=mock_error_server, config=server_config, sqs_client=server_sqs)
+        session_manager = SqsSessionManager(app=mock_error_server, config=server_config, sqs_client=server_sqs)
 
         with anyio.move_on_after(1.0):
             async with session_manager.run():

@@ -3,15 +3,14 @@
 import anyio
 import click
 import mcp.types as types
-from mcp.server.server import Server
+from mcp.server.lowlevel import Server
 from mcp.shared._httpx_utils import create_mcp_http_client
 
 from asyncmcp.sns_sqs.server import sns_sqs_server
-from asyncmcp.sqs.manager import SQSSessionManager
+from asyncmcp.sqs.manager import SqsSessionManager
 from shared import (
     create_server_transport_config,
     print_colored,
-    fetch_website,
     TRANSPORT_SNS_SQS,
     TRANSPORT_SQS,
 )
@@ -79,7 +78,7 @@ def main(transport) -> int:
                 await app.run(read_stream, write_stream, app.create_initialization_options())
         else:
             # For SQS transport, use the session manager
-            session_manager = SQSSessionManager(app=app, config=server_configuration, sqs_client=sqs_client)
+            session_manager = SqsSessionManager(app=app, config=server_configuration, sqs_client=sqs_client)
 
             async with session_manager.run():
                 print_colored("📡 SQS server ready and listening for requests", "green")

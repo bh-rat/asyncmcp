@@ -6,17 +6,6 @@ The CLI allows to take actions and the server is an asyncmcp version of MCP's [f
 > [!CAUTION]
 > This server can access local/internal IP addresses and may represent a security risk. Exercise caution when using this MCP server to ensure this does not expose any sensitive data.
 
-## Dynamic Queue System
-
-The SQS transport now uses a **dynamic queue system** where:
-
-- **Server** listens on a single request queue for all clients
-- **Clients** specify their own response queue URL in the `initialize` request
-- Each client gets responses sent to their specific response queue
-- Multiple clients can connect simultaneously with different response queues
-
-This allows for better scalability and client isolation.
-
 ## Prerequisites
 
 - **LocalStack** - Running on `localhost:4566`
@@ -47,7 +36,7 @@ uv run setup.py
 # Using SNS-SQS transport (default)
 uv run website_server.py
 
-# Using SQS-only transport with dynamic queues
+# Using SQS-only transport
 uv run website_server.py --transport sqs
 ```
 
@@ -96,7 +85,7 @@ call fetch url=https://google.com
    📄 <!doctype html><html itemscope="" ...
 ```
 
-The initialize request now includes the client's response queue URL:
+The initialize request includes the client's response queue URL:
 ```json
 {
   "jsonrpc": "2.0",
@@ -110,5 +99,3 @@ The initialize request now includes the client's response queue URL:
   }
 }
 ```
-
-The whole MCP communication happened through queues, with dynamic routing to client-specific response queues.

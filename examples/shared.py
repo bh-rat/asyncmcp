@@ -105,9 +105,9 @@ def create_client_transport_config(
             transport_timeout_seconds=timeout,
         )
         return config, sqs_client, sns_client
-    else:  # SQS only
+    else:
         config = SqsTransportConfig(
-            read_queue_url=RESOURCES["server_request_queue"],  # Server's request queue URL
+            read_queue_url=RESOURCES["server_request_queue"],
             max_messages=1,
             wait_time_seconds=5,
             poll_interval_seconds=2.0,
@@ -132,7 +132,7 @@ def create_server_transport_config(
             poll_interval_seconds=5.0,
         )
         return config, sqs_client, sns_client
-    else:  # SQS only - server only needs to know where to read requests
+    else:
         config = SqsTransportConfig(
             read_queue_url=RESOURCES["server_request_queue"],
             max_messages=10,

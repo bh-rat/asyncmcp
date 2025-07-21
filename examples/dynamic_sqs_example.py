@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """
-Example showing the new dynamic SQS queue system.
-
-In this system:
+In this example:
 - Server listens on one request queue for all clients
 - Each client specifies their response queue in the initialize request
-- Server creates sessions dynamically and routes responses to client-specific queues
+- Server creates sessions dynamically and routes responses to client-specific queues.
+- Server can manage multiple sessions.
 """
 
 import asyncio
-import json
 import boto3
 from mcp.server.lowlevel.server import Server
 import mcp.types as types
@@ -46,7 +44,7 @@ async def ensure_queues_exist():
 
 async def run_server():
     """Run the SQS server with session manager."""
-    from asyncmcp.sqs.manager import SQSSessionManager
+    from asyncmcp.sqs.manager import SqsSessionManager
     from asyncmcp.sqs.utils import SqsTransportConfig
 
     # Ensure queues exist
@@ -58,7 +56,7 @@ async def run_server():
     @app.call_tool()
     async def ping_tool(name: str, arguments: dict):
         if name == "ping":
-            return [types.TextContent(type="text", text="pong")]  # Fixed: added type field
+            return [types.TextContent(type="text", text="pong")]
 
     @app.list_tools()
     async def list_tools():
@@ -78,7 +76,7 @@ async def run_server():
     sqs_client = boto3.client("sqs", **AWS_CONFIG)
 
     # Create session manager
-    session_manager = SQSSessionManager(app=app, config=config, sqs_client=sqs_client)
+    session_manager = SqsSessionManager(app=app, config=config, sqs_client=sqs_client)
 
     print("🚀 Starting SQS server with dynamic queue support...")
     print(f"📡 Listening on: {SERVER_REQUEST_QUEUE}")
@@ -192,7 +190,7 @@ async def run_client():
         initialized_notification = types.JSONRPCMessage(
             root=types.JSONRPCNotification(
                 jsonrpc="2.0",
-                method="notifications/initialized",  # Fixed: was "initialized"
+                method="notifications/initialized",
                 params={},
             )
         )
@@ -209,7 +207,7 @@ async def run_client():
                 jsonrpc="2.0",
                 id=2,
                 method="tools/list",
-                params={},  # Back to empty dict - MCP might require this
+                params={},
             )
         )
 

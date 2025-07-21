@@ -1,8 +1,10 @@
 # src/asyncmcp/sqs/transport.py
 import logging
 import time
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Optional
+from dataclasses import dataclass
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -11,6 +13,12 @@ from mcp.shared.message import SessionMessage
 from .utils import SqsTransportConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class OutgoingMessageEvent:
+    session_id: str
+    message: SessionMessage
 
 
 class SqsTransport:
@@ -24,11 +32,13 @@ class SqsTransport:
         sqs_client: Any,
         session_id: str | None = None,
         response_queue_url: str | None = None,
+        outgoing_message_sender: Optional[MemoryObjectSendStream[OutgoingMessageEvent]] = None,
     ):
         self.config = config
         self.sqs_client = sqs_client
         self.session_id = session_id
         self.response_queue_url = response_queue_url
+        self._outgoing_message_sender = outgoing_message_sender
 
         self._terminated = False
 
@@ -67,9 +77,43 @@ class SqsTransport:
         self._write_stream = write_stream
 
         try:
-            yield read_stream, write_stream
+            if self._outgoing_message_sender:
+                async with anyio.create_task_group() as tg:
+                    tg.start_soon(self._message_forwarder)
+                    try:
+                        yield read_stream, write_stream
+                    finally:
+                        tg.cancel_scope.cancel()
+            else:
+                yield read_stream, write_stream
         finally:
             await self._cleanup()
+
+    async def _message_forwarder(self) -> None:
+        if not self._write_stream_reader or not self._outgoing_message_sender:
+            return
+            
+        try:
+            async with self._write_stream_reader:
+                async for message in self._write_stream_reader:
+                    if self._terminated:
+                        break
+                    
+                    event = OutgoingMessageEvent(
+                        session_id=self.session_id,
+                        message=message
+                    )
+                    
+                    try:
+                        self._outgoing_message_sender.send_nowait(event)
+                    except anyio.WouldBlock:
+                        logger.warning(f"Central message queue full for session {self.session_id}")
+                    except anyio.BrokenResourceError:
+                        break
+        except anyio.EndOfStream:
+            pass
+        except Exception as e:
+            logger.warning(f"Error in message forwarder for session {self.session_id}: {e}")
 
     async def terminate(self) -> None:
         """Terminate this transport session."""
@@ -110,23 +154,6 @@ class SqsTransport:
         except Exception as e:
             logger.warning(f"Error sending message to session {self.session_id}: {e}")
 
-    async def get_outgoing_message(self) -> SessionMessage | None:
-        """Get the next outgoing message from this session."""
-        if self._terminated or not self._write_stream_reader:
-            return None
-
-        try:
-            # TODO: Remove wait and move to event driven approach
-            with anyio.move_on_after(0.1):
-                message = await self._write_stream_reader.receive()
-                return message
-        except anyio.EndOfStream:
-            return None
-        except Exception as e:
-            logger.warning(f"Error receiving message from session {self.session_id}: {e}")
-
-        return None
-
     async def _create_sqs_message_attributes(self, session_message: SessionMessage) -> dict:
         """Create SQS message attributes for outgoing messages."""
         attrs = {
@@ -138,6 +165,7 @@ class SqsTransport:
         message_root = session_message.message.root
         if hasattr(message_root, "method"):
             attrs["Method"] = {"DataType": "String", "StringValue": message_root.method}
+        # Only add RequestId for actual requests (not responses which also have IDs)
         if hasattr(message_root, "id") and hasattr(message_root, "method"):
             attrs["RequestId"] = {"DataType": "String", "StringValue": str(message_root.id)}
 
