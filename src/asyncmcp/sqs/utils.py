@@ -15,7 +15,6 @@ class SqsTransportConfig:
     """Configuration for SQS only transport."""
 
     read_queue_url: str
-    write_queue_url: str
     max_messages: int = 10
     wait_time_seconds: int = 20
     visibility_timeout_seconds: int = 30
