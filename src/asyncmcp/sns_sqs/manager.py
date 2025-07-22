@@ -1,4 +1,5 @@
-# src/asyncmcp/sqs/manager.py
+# src/asyncmcp/sns_sqs/manager.py
+import json
 import logging
 import threading
 from contextlib import asynccontextmanager
@@ -12,22 +13,25 @@ import mcp.types as types
 from mcp.shared.message import SessionMessage
 from mcp.server.lowlevel.server import Server as MCPServer
 
-from .server import SqsTransport, OutgoingMessageEvent
-from .utils import SqsTransportConfig
+from asyncmcp.sns_sqs.server import SnsSqsTransport, OutgoingMessageEvent
+from asyncmcp.sns_sqs.utils import SnsSqsServerConfig
 from asyncmcp.common.aws_queue_utils import to_session_message, delete_sqs_message
 
 logger = logging.getLogger(__name__)
 
 
-class SqsSessionManager:
-    def __init__(self, app: MCPServer, config: SqsTransportConfig, sqs_client: Any, stateless: bool = False):
+class SnsSqsSessionManager:
+    def __init__(
+        self, app: MCPServer, config: SnsSqsServerConfig, sqs_client: Any, sns_client: Any, stateless: bool = False
+    ):
         self.app = app
         self.config = config
         self.sqs_client = sqs_client
+        self.sns_client = sns_client
         self.stateless = stateless
 
         self._session_lock = anyio.Lock()
-        self._transport_instances: Dict[str, SqsTransport] = {}
+        self._transport_instances: Dict[str, SnsSqsTransport] = {}
 
         self._outgoing_message_sender: Optional[anyio.MemoryObjectSendStream[OutgoingMessageEvent]] = None
         self._outgoing_message_receiver: Optional[anyio.MemoryObjectReceiveStream[OutgoingMessageEvent]] = None
@@ -39,14 +43,14 @@ class SqsSessionManager:
     @asynccontextmanager
     async def run(self):
         """
-        Run the session manager with SQS message processing.
+        Run the session manager with SNS/SQS message processing.
 
         Starts the main SQS listener that handles initialize requests
         and routes messages to appropriate sessions.
         """
         with self._run_lock:
             if self._has_started:
-                raise RuntimeError("SqsSessionManager.run() can only be called once per instance.")
+                raise RuntimeError("SnsSqsSessionManager.run() can only be called once per instance.")
             self._has_started = True
 
         self._outgoing_message_sender, self._outgoing_message_receiver = anyio.create_memory_object_stream[
@@ -58,12 +62,12 @@ class SqsSessionManager:
             tg.start_soon(self._sqs_message_processor)
             tg.start_soon(self._event_driven_message_sender)
 
-            logger.info("SQS session manager started")
+            logger.info("SNS/SQS session manager started")
 
             try:
                 yield
             finally:
-                logger.info("SQS session manager shutting down")
+                logger.info("SNS/SQS session manager shutting down")
                 tg.cancel_scope.cancel()
                 await self._shutdown_all_sessions()
 
@@ -82,7 +86,7 @@ class SqsSessionManager:
         1. Creates new session for 'initialize' requests
         2. Routes to existing session based on SessionId
         """
-        logger.info("Starting SQS message processor")
+        logger.info("Starting SNS/SQS message processor")
 
         try:
             while True:
@@ -93,7 +97,7 @@ class SqsSessionManager:
                     # Poll SQS for messages
                     response = await anyio.to_thread.run_sync(
                         lambda: self.sqs_client.receive_message(
-                            QueueUrl=self.config.read_queue_url,
+                            QueueUrl=self.config.sqs_queue_url,
                             MaxNumberOfMessages=self.config.max_messages,
                             WaitTimeSeconds=self.config.wait_time_seconds,
                             VisibilityTimeout=self.config.visibility_timeout_seconds,
@@ -110,13 +114,13 @@ class SqsSessionManager:
                         await anyio.sleep(self.config.poll_interval_seconds)
 
                 except Exception as e:
-                    logger.error(f"Error in SQS message processor: {e}")
+                    logger.error(f"Error in SNS/SQS message processor: {e}")
                     await anyio.sleep(min(self.config.poll_interval_seconds, 1.0))
         except anyio.get_cancelled_exc_class():
-            logger.info("SQS message processor cancelled")
+            logger.info("SNS/SQS message processor cancelled")
             raise
         except Exception as e:
-            logger.error(f"Fatal error in SQS message processor: {e}")
+            logger.error(f"Fatal error in SNS/SQS message processor: {e}")
             raise
 
     async def _process_single_message(self, sqs_message: Dict[str, Any]) -> None:
@@ -124,10 +128,22 @@ class SqsSessionManager:
             session_message = await to_session_message(sqs_message)
             message_root = session_message.message.root
 
-            message_attrs = sqs_message.get("MessageAttributes", {})
+            # Extract SessionId from SQS message attributes or SNS notification
             session_id = None
+            message_attrs = sqs_message.get("MessageAttributes", {})
+
             if "SessionId" in message_attrs:
                 session_id = message_attrs["SessionId"]["StringValue"]
+            else:
+                # Check if this is an SNS notification and extract attributes from there
+                try:
+                    body = json.loads(sqs_message["Body"])
+                    if "MessageAttributes" in body:
+                        sns_attrs = body["MessageAttributes"]
+                        if "SessionId" in sns_attrs:
+                            session_id = sns_attrs["SessionId"]["Value"]
+                except (json.JSONDecodeError, KeyError):
+                    pass
 
             is_initialize_request = (
                 isinstance(message_root, types.JSONRPCRequest) and message_root.method == "initialize"
@@ -142,11 +158,11 @@ class SqsSessionManager:
                 else:
                     logger.warning(f"No session found for message with SessionId: {session_id}")
 
-            await delete_sqs_message(self.sqs_client, self.config.read_queue_url, sqs_message["ReceiptHandle"])
+            await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, sqs_message["ReceiptHandle"])
 
         except Exception as e:
             logger.error(f"Error processing SQS message: {e}")
-            await delete_sqs_message(self.sqs_client, self.config.read_queue_url, sqs_message["ReceiptHandle"])
+            await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, sqs_message["ReceiptHandle"])
 
     async def _handle_initialize_request(
         self, session_message: SessionMessage, session_id: str | None, sqs_message: Dict[str, Any]
@@ -156,26 +172,27 @@ class SqsSessionManager:
             await transport.send_message(session_message)
             return
 
-        response_queue_url = None
+        client_topic_arn = None
         message_root = session_message.message.root
         if isinstance(message_root, types.JSONRPCRequest) and message_root.params:
             if isinstance(message_root.params, dict):
-                response_queue_url = message_root.params.get("response_queue_url")
+                client_topic_arn = message_root.params.get("client_topic_arn")
 
-        if not response_queue_url:
-            logger.error("Initialize request missing required 'response_queue_url' parameter")
-            await delete_sqs_message(self.sqs_client, self.config.read_queue_url, sqs_message["ReceiptHandle"])
+        if not client_topic_arn:
+            logger.error("Initialize request missing required 'client_topic_arn' parameter")
+            delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, sqs_message["ReceiptHandle"])
             return
 
         async with self._session_lock:
             if not session_id:
                 session_id = uuid4().hex
 
-            transport = SqsTransport(
+            transport = SnsSqsTransport(
                 config=self.config,
                 sqs_client=self.sqs_client,
+                sns_client=self.sns_client,
                 session_id=session_id,
-                response_queue_url=response_queue_url,
+                client_topic_arn=client_topic_arn,
                 outgoing_message_sender=self._outgoing_message_sender,
             )
 
@@ -185,7 +202,7 @@ class SqsSessionManager:
                 try:
                     async with transport.connect() as (read_stream, write_stream):
                         task_status.started()
-                        logger.info(f"Started SQS session: {session_id}")
+                        logger.info(f"Started SNS/SQS session: {session_id}")
 
                         await self.app.run(
                             read_stream,
@@ -208,9 +225,9 @@ class SqsSessionManager:
 
     async def _event_driven_message_sender(self) -> None:
         """
-        Background task to send outgoing messages from sessions back to SQS.
+        Background task to send outgoing messages from sessions back to SNS topics.
         """
-        logger.info("Starting SQS message sender")
+        logger.info("Starting SNS message sender")
 
         if not self._outgoing_message_receiver:
             logger.error("No outgoing message receiver configured")
@@ -227,16 +244,16 @@ class SqsSessionManager:
                             )
                             continue
 
-                        await transport.send_to_client_queue(message_event.message)
+                        await transport.send_to_client_topic(message_event.message)
 
                     except Exception as e:
                         logger.error(f"Error processing outgoing message for session {message_event.session_id}: {e}")
 
         except anyio.get_cancelled_exc_class():
-            logger.info("SQS message sender cancelled")
+            logger.info("SNS message sender cancelled")
             raise
         except Exception as e:
-            logger.error(f"Fatal error in SQS message sender: {e}")
+            logger.error(f"Fatal error in SNS message sender: {e}")
             raise
 
     async def terminate_session(self, session_id: str) -> bool:

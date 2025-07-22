@@ -1,6 +1,7 @@
 """
 Comprehensive anyio fixture tests for SQS client transport module.
 """
+
 import pydantic_core
 import pytest
 from unittest.mock import patch, MagicMock
@@ -10,9 +11,10 @@ from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCNotification
 from pydantic_core import ValidationError
 
-from asyncmcp.sqs.utils import SqsTransportConfig, process_sqs_message
+# Updated imports to use correct modules
+from asyncmcp.sqs.utils import SqsTransportConfig
 from asyncmcp.sqs.client import sqs_client, _create_sqs_message_attributes
-from asyncmcp.sns_sqs.utils import _to_session_message, _delete_sqs_message
+from asyncmcp.common.aws_queue_utils import to_session_message, delete_sqs_message
 
 from .shared_fixtures import (
     mock_sqs_client,
@@ -231,7 +233,7 @@ class TestProcessSQSMessage:
     @pytest.mark.anyio
     async def test_process_direct_message(self, sample_sqs_message):
         """Test processing a direct SQS message."""
-        session_message = await _to_session_message(sample_sqs_message)
+        session_message = await to_session_message(sample_sqs_message)
 
         assert isinstance(session_message, SessionMessage)
         assert session_message.message.root.method == "test/method"
@@ -247,8 +249,8 @@ class TestProcessSQSMessage:
             "MessageAttributes": {},
         }
 
-        with pytest.raises(pydantic_core.ValidationError):
-            await _to_session_message(invalid_message)
+        with pytest.raises(ValueError):
+            await to_session_message(invalid_message)
 
 
 class TestCreateSQSMessageAttributesClient:
@@ -258,8 +260,9 @@ class TestCreateSQSMessageAttributesClient:
     async def test_create_basic_attributes(self, transport_config, sample_jsonrpc_request):
         """Test creating basic message attributes for client requests."""
         session_message = SessionMessage(sample_jsonrpc_request)
-        attrs = await _create_sqs_message_attributes(session_message, transport_config, "test-client-123",
-                                                     "test-session-123")
+        attrs = await _create_sqs_message_attributes(
+            session_message, transport_config, "test-client-123", "test-session-123"
+        )
 
         assert attrs["MessageType"]["StringValue"] == "jsonrpc"
         assert attrs["MessageType"]["DataType"] == "String"
@@ -284,10 +287,11 @@ class TestCreateSQSMessageAttributesClient:
     @pytest.mark.anyio
     async def test_create_attributes_with_custom_config(self, transport_config, sample_jsonrpc_request):
         """Test creating message attributes with custom configuration."""
-        transport_config.message_attributes = {"CustomAttr": {"DataType": "String", "StringValue": "custom-value"}}
+        transport_config.message_attributes = {"CustomAttr": "custom-value"}
         session_message = SessionMessage(sample_jsonrpc_request)
-        attrs = await _create_sqs_message_attributes(session_message, transport_config, "custom-client",
-                                                     "custom-session")
+        attrs = await _create_sqs_message_attributes(
+            session_message, transport_config, "custom-client", "custom-session"
+        )
 
         assert attrs["MessageType"]["StringValue"] == "jsonrpc"
         assert attrs["ClientId"]["StringValue"] == "custom-client"

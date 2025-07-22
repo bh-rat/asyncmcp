@@ -6,10 +6,11 @@ import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.shared._httpx_utils import create_mcp_http_client
 
-from asyncmcp.sns_sqs.server import sns_sqs_server
+from asyncmcp.sns_sqs.manager import SnsSqsSessionManager
 from asyncmcp.sqs.manager import SqsSessionManager
 from shared import (
-    create_server_transport_config,
+    create_sns_sqs_server_config,
+    create_sqs_config,
     print_colored,
     TRANSPORT_SNS_SQS,
     TRANSPORT_SQS,
@@ -70,14 +71,31 @@ def main(transport) -> int:
     async def arun():
         # Configure transport based on command line argument
         print_colored(f"🔧 Configuring {transport} transport", "yellow")
-        server_configuration, sqs_client, sns_client = create_server_transport_config(transport)
 
         if transport == TRANSPORT_SNS_SQS:
-            async with sns_sqs_server(server_configuration, sqs_client, sns_client) as (read_stream, write_stream):
-                print_colored("📡 Server ready and listening for requests", "green")
-                await app.run(read_stream, write_stream, app.create_initialization_options())
+            server_configuration, sqs_client, sns_client = create_sns_sqs_server_config()
+            session_manager = SnsSqsSessionManager(
+                app=app, config=server_configuration, sqs_client=sqs_client, sns_client=sns_client
+            )
+            print_colored("📡 SQS server ready and listening for requests", "green")
+            print_colored("📝 Send an 'initialize' request to start a session", "cyan")
+
+            async with session_manager.run():
+                try:
+                    while True:
+                        await anyio.sleep(10)
+                        # Optionally show session stats
+                        stats = session_manager.get_all_sessions()
+                        if stats:
+                            print(f"🔗 Active sessions: {len(stats)}")
+                            for session_id, stat in stats.items():
+                                terminated = stat.get("terminated", False)
+                                status = "terminated" if terminated else "active"
+                                print(f"  Session {session_id[:8]}...: {status}")
+                except KeyboardInterrupt:
+                    print_colored("🛑 Shutting down server...", "yellow")
         else:
-            # For SQS transport, use the session manager
+            server_configuration, sqs_client, sns_client = create_sqs_config()
             session_manager = SqsSessionManager(app=app, config=server_configuration, sqs_client=sqs_client)
 
             async with session_manager.run():

@@ -1,9 +1,7 @@
 import logging
-import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
-from dataclasses import dataclass
 
 import anyio
 import anyio.lowlevel
@@ -14,48 +12,26 @@ import json
 import mcp.types as types
 from mcp.shared.message import SessionMessage
 
-from .utils import SqsTransportConfig, process_sqs_message
+from asyncmcp.sqs.utils import SqsTransportConfig
+from asyncmcp.common.client_state import ClientState
+from asyncmcp.common.aws_queue_utils import create_common_client_message_attributes, sqs_reader as common_sqs_reader
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ClientState:
-    """Simple state container for the session id to avoid nonlocal variables"""
-    session_id: Optional[str] = None
-    client_id: str = ""
-    
-    async def set_session_id_if_none(self, new_session_id: str) -> None:
-        """Thread-safe session ID initialization."""
-        if self.session_id is None:
-            self.session_id = new_session_id
-
-
 async def _create_sqs_message_attributes(
-        session_message: SessionMessage, config: SqsTransportConfig, client_id: str, session_id: str | None
+    session_message: SessionMessage, config: SqsTransportConfig, client_id: str, session_id: Optional[str]
 ) -> Dict[str, Any]:
-    attrs = {
-        "MessageType": {"DataType": "String", "StringValue": "jsonrpc"},
-        "ClientId": {"DataType": "String", "StringValue": client_id},
-        "Timestamp": {"DataType": "Number", "StringValue": str(int(time.time()))},
-    }
-
-    message_root = session_message.message.root
-    if isinstance(message_root, types.JSONRPCRequest):
-        attrs.update(
-            {
-                "RequestId": {"DataType": "String", "StringValue": str(message_root.id)},
-                "Method": {"DataType": "String", "StringValue": message_root.method},
-            }
-        )
-    elif isinstance(message_root, types.JSONRPCNotification):
-        attrs["Method"] = {"DataType": "String", "StringValue": message_root.method}
+    """Creates SQS message attributes."""
+    attrs = create_common_client_message_attributes(
+        session_message=session_message,
+        client_id=client_id,
+        session_id=session_id,
+    )
 
     if config.message_attributes:
-        attrs.update(config.message_attributes)
-
-    if session_id:
-        attrs["SessionId"] = {"DataType": "String", "StringValue": session_id}
+        for key, value in config.message_attributes.items():
+            attrs[key] = {"DataType": "String", "StringValue": str(value)}
 
     return attrs
 
@@ -67,10 +43,7 @@ async def sqs_client(
     tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]],
     None,
 ]:
-    state = ClientState(
-        client_id=config.client_id or str(uuid.uuid4()),
-        session_id=None
-    )
+    state = ClientState(client_id=config.client_id or f"mcp-client-{uuid.uuid4().hex[:8]}", session_id=None)
 
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
@@ -80,34 +53,8 @@ async def sqs_client(
     write_stream: MemoryObjectSendStream[SessionMessage]
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    async def sqs_reader() -> None:
-        async with read_stream_writer:
-            while True:
-                await anyio.lowlevel.checkpoint()
-                try:
-                    response = await anyio.to_thread.run_sync(
-                        lambda: sqs_client.receive_message(
-                            QueueUrl=response_queue_url,
-                            MaxNumberOfMessages=config.max_messages,
-                            WaitTimeSeconds=config.wait_time_seconds,
-                            VisibilityTimeout=config.visibility_timeout_seconds,
-                            MessageAttributeNames=["All"],
-                        )
-                    )
-                    messages = response.get("Messages", [])
-                    if messages:
-                        for message in messages:
-                            if state.session_id is None:
-                                msg_attrs = message.get("MessageAttributes", {})
-                                if "SessionId" in msg_attrs:
-                                    await state.set_session_id_if_none(msg_attrs["SessionId"]["StringValue"])
-
-                        await process_sqs_message(messages, sqs_client, response_queue_url, read_stream_writer)
-                    else:
-                        await anyio.sleep(config.poll_interval_seconds)
-                except Exception as e:
-                    logger.warning(f"Error receiving messages from SQS: {e}")
-                    await anyio.sleep(min(config.poll_interval_seconds, 1.0))
+    async def sqs_reader():
+        await common_sqs_reader(read_stream_writer, sqs_client, config, response_queue_url, state)
 
     async def sqs_writer() -> None:
         async with write_stream_reader:
@@ -118,7 +65,7 @@ async def sqs_client(
                     message_attributes = await _create_sqs_message_attributes(
                         session_message, config, state.client_id, state.session_id
                     )
-                    
+
                     # For initialize requests, add response_queue_url to the params
                     if (
                         isinstance(session_message.message.root, types.JSONRPCRequest)
