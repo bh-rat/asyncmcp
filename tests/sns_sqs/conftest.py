@@ -1,18 +1,16 @@
 """
-Configuration and shared fixtures for SQS+SNS transport tests.
+Configuration for SNS/SQS tests.
 """
 
-# Import all shared fixtures so they're available to all test files
+import pytest
 from tests.sns_sqs.shared_fixtures import (
     mock_sqs_client,
     mock_sns_client,
-    sample_jsonrpc_request,
-    sample_jsonrpc_response,
-    sample_jsonrpc_notification,
     sample_sqs_message,
-    sample_sns_wrapped_message,
-    client_transport_config,
-    server_transport_config,
+    sample_jsonrpc_request,
+    sample_jsonrpc_notification,
+    server_config,
+    client_config,
     client_server_config,
 )
 
@@ -20,20 +18,16 @@ from tests.sns_sqs.shared_fixtures import (
 __all__ = [
     "mock_sqs_client",
     "mock_sns_client",
-    "sample_jsonrpc_request",
-    "sample_jsonrpc_response",
-    "sample_jsonrpc_notification",
     "sample_sqs_message",
-    "sample_sns_wrapped_message",
-    "client_transport_config",
-    "server_transport_config",
+    "sample_jsonrpc_request",
+    "sample_jsonrpc_notification",
+    "server_config",
+    "client_config",
     "client_server_config",
 ]
 
-import pytest
-import anyio
-from unittest.mock import MagicMock, AsyncMock
-from typing import Dict, Any, List
+from unittest.mock import MagicMock
+from typing import Dict, Any
 
 # anyio backend configuration moved to top-level conftest.py
 

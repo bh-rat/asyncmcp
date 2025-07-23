@@ -1,27 +1,22 @@
 # src/asyncmcp/sqs/transport.py
 import logging
-import time
-import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Optional
-from dataclasses import dataclass
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from anyio.streams.memory import MemoryObjectSendStream
 
 from mcp.shared.message import SessionMessage
-from .utils import SqsTransportConfig
+
+from asyncmcp.common.server import ServerTransport
+from asyncmcp.sqs.utils import SqsTransportConfig
+from asyncmcp.common.outgoing_event import OutgoingMessageEvent
+from asyncmcp.common.aws_queue_utils import create_common_client_message_attributes
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class OutgoingMessageEvent:
-    session_id: str
-    message: SessionMessage
-
-
-class SqsTransport:
+class SqsTransport(ServerTransport):
     """
     SQS transport for handling a single MCP session.
     """
@@ -34,143 +29,21 @@ class SqsTransport:
         response_queue_url: str | None = None,
         outgoing_message_sender: Optional[MemoryObjectSendStream[OutgoingMessageEvent]] = None,
     ):
-        self.config = config
+        super().__init__(config, session_id, outgoing_message_sender)
         self.sqs_client = sqs_client
-        self.session_id = session_id
         self.response_queue_url = response_queue_url
-        self._outgoing_message_sender = outgoing_message_sender
-
-        self._terminated = False
-
-        self._read_stream_writer: Optional[MemoryObjectSendStream] = None
-        self._read_stream: Optional[MemoryObjectReceiveStream] = None
-        self._write_stream_reader: Optional[MemoryObjectReceiveStream] = None
-        self._write_stream: Optional[MemoryObjectSendStream] = None
 
     def set_response_queue_url(self, response_queue_url: str) -> None:
         """Set the client-specific response queue URL."""
         self.response_queue_url = response_queue_url
 
-    @property
-    def is_terminated(self) -> bool:
-        return self._terminated
-
-    @asynccontextmanager
-    async def connect(self):
-        """
-        Connect and provide bidirectional streams.
-
-        The actual SQS polling will be handled by the session manager.
-        This just sets up the internal streams for this session.
-        """
-        if self._terminated:
-            raise RuntimeError("Cannot connect to terminated transport")
-
-        # Create memory streams for this session
-        read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
-        write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
-
-        # Store streams
-        self._read_stream_writer = read_stream_writer
-        self._read_stream = read_stream
-        self._write_stream_reader = write_stream_reader
-        self._write_stream = write_stream
-
-        try:
-            if self._outgoing_message_sender:
-                async with anyio.create_task_group() as tg:
-                    tg.start_soon(self._message_forwarder)
-                    try:
-                        yield read_stream, write_stream
-                    finally:
-                        tg.cancel_scope.cancel()
-            else:
-                yield read_stream, write_stream
-        finally:
-            await self._cleanup()
-
-    async def _message_forwarder(self) -> None:
-        if not self._write_stream_reader or not self._outgoing_message_sender:
-            return
-            
-        try:
-            async with self._write_stream_reader:
-                async for message in self._write_stream_reader:
-                    if self._terminated:
-                        break
-                    
-                    event = OutgoingMessageEvent(
-                        session_id=self.session_id,
-                        message=message
-                    )
-                    
-                    try:
-                        self._outgoing_message_sender.send_nowait(event)
-                    except anyio.WouldBlock:
-                        logger.warning(f"Central message queue full for session {self.session_id}")
-                    except anyio.BrokenResourceError:
-                        break
-        except anyio.EndOfStream:
-            pass
-        except Exception as e:
-            logger.warning(f"Error in message forwarder for session {self.session_id}: {e}")
-
-    async def terminate(self) -> None:
-        """Terminate this transport session."""
-        if self._terminated:
-            return
-
-        logger.info(f"Terminating SQS transport session: {self.session_id}")
-        self._terminated = True
-        await self._cleanup()
-
-    async def _cleanup(self) -> None:
-        """Clean up streams and resources."""
-        try:
-            if self._read_stream_writer:
-                await self._read_stream_writer.aclose()
-            if self._read_stream:
-                await self._read_stream.aclose()
-            if self._write_stream_reader:
-                await self._write_stream_reader.aclose()
-            if self._write_stream:
-                await self._write_stream.aclose()
-        except Exception as e:
-            logger.debug(f"Error during cleanup: {e}")
-        finally:
-            # Set stream references to None after cleanup
-            self._read_stream_writer = None
-            self._read_stream = None
-            self._write_stream_reader = None
-            self._write_stream = None
-
-    async def send_message(self, session_message: SessionMessage) -> None:
-        """Send a message to this session's read stream."""
-        if self._terminated or not self._read_stream_writer:
-            return
-
-        try:
-            await self._read_stream_writer.send(session_message)
-        except Exception as e:
-            logger.warning(f"Error sending message to session {self.session_id}: {e}")
-
     async def _create_sqs_message_attributes(self, session_message: SessionMessage) -> dict:
         """Create SQS message attributes for outgoing messages."""
-        attrs = {
-            "MessageType": {"DataType": "String", "StringValue": "jsonrpc"},
-            "SessionId": {"DataType": "String", "StringValue": self.session_id or ""},
-            "Timestamp": {"DataType": "Number", "StringValue": str(int(time.time()))},
-        }
-
-        message_root = session_message.message.root
-        if hasattr(message_root, "method"):
-            attrs["Method"] = {"DataType": "String", "StringValue": message_root.method}
-        # Only add RequestId for actual requests (not responses which also have IDs)
-        if hasattr(message_root, "id") and hasattr(message_root, "method"):
-            attrs["RequestId"] = {"DataType": "String", "StringValue": str(message_root.id)}
+        attrs = create_common_client_message_attributes(session_message, session_id=self.session_id, client_id=None)
 
         if self.config.message_attributes:
-            attrs.update(self.config.message_attributes)
+            for key, value in self.config.message_attributes.items():
+                attrs[key] = {"DataType": "String", "StringValue": str(value)}
 
         return attrs
 
@@ -202,7 +75,7 @@ class SqsTransport:
 
 @asynccontextmanager
 async def sqs_server(config: SqsTransportConfig, sqs_client: Any, response_queue_url: str):
-    """Backward compatible SQS server transport - now requires response_queue_url parameter."""
+    """Easy wrapper for initiating a SQS server transport"""
     transport = SqsTransport(config, sqs_client, response_queue_url=response_queue_url)
 
     async with transport.connect() as (read_stream, write_stream):

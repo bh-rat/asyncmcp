@@ -7,15 +7,13 @@ This script creates the necessary SNS topics and SQS queues for testing.
 
 import json
 import sys
-from shared import print_colored, setup_aws_clients, ensure_localstack_running
+from shared import print_colored, setup_aws_clients
 
 
 def setup_localstack():
     """Setup SNS topics and SQS queues in LocalStack"""
     try:
         print_colored("🔧 Setting up LocalStack resources...", "cyan")
-
-        ensure_localstack_running()
 
         # Create AWS clients
         sqs_client, sns_client = setup_aws_clients()

@@ -14,13 +14,15 @@ from mcp.shared.message import SessionMessage
 from asyncmcp.sns_sqs.client import sns_sqs_client
 from asyncmcp.sqs.client import sqs_client as pure_sqs_client
 from shared import (
-    create_client_transport_config,
+    create_sns_sqs_client_config,
     get_client_response_queue_url,
     send_mcp_request,
     print_colored,
     DEFAULT_INIT_PARAMS,
     TRANSPORT_SNS_SQS,
     TRANSPORT_SQS,
+    print_json,
+    create_sqs_config,
 )
 
 
@@ -185,14 +187,18 @@ async def interactive_mode(transport_type: str = TRANSPORT_SNS_SQS):
     print_colored("Commands: init, tools, call <tool_name> <params...>, quit", "yellow")
     print_colored("Example: call fetch url=https://google.com", "yellow")
 
-    transport_config, sqs_client, sns_client = create_client_transport_config(
-        "website-client", transport_type=transport_type
-    )
+    if transport_type == TRANSPORT_SNS_SQS:
+        transport_config, sqs_client, sns_client, client_topic_arn = create_sns_sqs_client_config(
+            client_id="website-client"
+        )
+    else:
+        transport_config, sqs_client, sns_client = create_sqs_config()
+        client_topic_arn = None
 
     try:
         if transport_type == TRANSPORT_SNS_SQS:
             client = sns_sqs_client
-            client_args = (transport_config, sqs_client, sns_client)
+            client_args = (transport_config, sqs_client, sns_client, client_topic_arn)
         else:
             client = pure_sqs_client
             # For SQS transport, we need to provide the client's response queue URL
