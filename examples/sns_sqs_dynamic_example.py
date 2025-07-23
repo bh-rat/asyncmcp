@@ -14,9 +14,8 @@ and the server creates a dedicated session for each client.
 """
 
 import asyncio
-import json
 import logging
-from typing import Dict
+import sys
 
 import boto3
 import mcp.types as types
@@ -54,8 +53,11 @@ async def ensure_resources_exist():
         try:
             sqs_client.create_queue(QueueName=queue_name)
             print(f"✅ Queue {queue_name} ready")
-        except sqs_client.exceptions.QueueExists:
-            print(f"📂 Queue {queue_name} already exists")
+        except Exception as e:
+            if "Queue already exists" in str(e):
+                print(f"📂 Queue {queue_name} already exists")
+            else:
+                print(f"⚠️  Error creating queue {queue_name}: {e}")
 
     # Create topics
     for topic_name in ["server-topic", "client-topic"]:
@@ -210,8 +212,6 @@ SNS topic ARN for receiving responses.
 
 
 if __name__ == "__main__":
-    import sys
-
     if len(sys.argv) != 2:
         print_usage()
         sys.exit(1)

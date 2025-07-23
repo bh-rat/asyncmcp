@@ -3,24 +3,18 @@ Comprehensive integration tests for SQS transport with dynamic queue system.
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 import json
 
 import anyio
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, JSONRPCNotification, JSONRPCError
+from mcp.types import JSONRPCMessage, JSONRPCRequest
 
 from asyncmcp.sqs.client import sqs_client
 from asyncmcp.sqs.manager import SqsSessionManager
 from asyncmcp.sqs.utils import SqsTransportConfig
 
 from .shared_fixtures import (
-    mock_sqs_client,
-    sample_jsonrpc_request,
-    sample_jsonrpc_initialize_request,
-    sample_jsonrpc_response,
-    sample_jsonrpc_notification,
-    sample_initialize_sqs_message,
     client_server_config,
     mock_mcp_server,
 )

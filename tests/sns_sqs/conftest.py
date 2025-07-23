@@ -26,9 +26,8 @@ __all__ = [
     "client_server_config",
 ]
 
-import anyio
-from unittest.mock import MagicMock, AsyncMock
-from typing import Dict, Any, List
+from unittest.mock import MagicMock
+from typing import Dict, Any
 
 # anyio backend configuration moved to top-level conftest.py
 

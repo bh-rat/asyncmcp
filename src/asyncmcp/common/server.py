@@ -1,6 +1,6 @@
 import logging
 
-from typing import Protocol, Optional, AsyncIterator, Tuple, Any, AsyncContextManager, AsyncGenerator
+from typing import Optional, Any, AsyncGenerator
 from contextlib import asynccontextmanager
 
 import anyio

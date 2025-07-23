@@ -2,7 +2,6 @@
 Comprehensive anyio fixture tests for SQS server transport module.
 """
 
-import pydantic_core
 import pytest
 from unittest.mock import patch, MagicMock
 

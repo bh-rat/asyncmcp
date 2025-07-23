@@ -7,7 +7,7 @@ import time
 
 import mcp.types as types
 from anyio.streams.memory import MemoryObjectSendStream
-from jsonschema import ValidationError
+from pydantic_core import ValidationError
 from mcp.shared.message import SessionMessage
 
 from asyncmcp.common.client_state import ClientState
@@ -155,7 +155,4 @@ async def sqs_reader(
                     await anyio.sleep(config.poll_interval_seconds)
             except Exception as e:
                 logger.warning(f"Error receiving messages from SQS: {e}")
-                import traceback
-
-                logger.warning(traceback.format_exc())
                 await anyio.sleep(min(config.poll_interval_seconds, 1.0))

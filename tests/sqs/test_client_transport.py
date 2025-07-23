@@ -2,19 +2,16 @@
 Comprehensive anyio fixture tests for SQS client transport module.
 """
 
-import pydantic_core
 import pytest
 from unittest.mock import patch, MagicMock
 
 import anyio
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCNotification
-from pydantic_core import ValidationError
 
 # Updated imports to use correct modules
 from asyncmcp.sqs.utils import SqsTransportConfig
 from asyncmcp.sqs.client import sqs_client, _create_sqs_message_attributes
-from asyncmcp.common.aws_queue_utils import to_session_message, delete_sqs_message
+from asyncmcp.common.aws_queue_utils import to_session_message
 
 from .shared_fixtures import (
     mock_sqs_client,
@@ -22,11 +19,8 @@ from .shared_fixtures import (
     sample_jsonrpc_request,
     sample_jsonrpc_initialize_request,
     sample_jsonrpc_notification,
-    sample_jsonrpc_response,
     client_transport_config,
     client_response_queue_url,
-    server_transport_config,
-    client_server_config,
 )
 
 

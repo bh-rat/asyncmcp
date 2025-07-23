@@ -3,7 +3,7 @@ Tests for SNS/SQS client transport functionality.
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import anyio
 from mcp.shared.message import SessionMessage

@@ -8,9 +8,18 @@ In this example:
 """
 
 import asyncio
+import sys
 import boto3
+import time
+import anyio
+
 from mcp.server.lowlevel.server import Server
 import mcp.types as types
+
+from asyncmcp.sqs.client import sqs_client
+from mcp.shared.message import SessionMessage
+from asyncmcp.sqs.manager import SqsSessionManager
+from asyncmcp.sqs.utils import SqsTransportConfig
 
 # Setup LocalStack AWS clients
 AWS_CONFIG = {
@@ -44,9 +53,6 @@ async def ensure_queues_exist():
 
 async def run_server():
     """Run the SQS server with session manager."""
-    from asyncmcp.sqs.manager import SqsSessionManager
-    from asyncmcp.sqs.utils import SqsTransportConfig
-
     # Ensure queues exist
     await ensure_queues_exist()
 
@@ -99,10 +105,6 @@ async def run_server():
 
 async def run_client():
     """Run a simple SQS client that specifies its response queue."""
-    from asyncmcp.sqs.client import sqs_client
-    from asyncmcp.sqs.utils import SqsTransportConfig
-    from mcp.shared.message import SessionMessage
-
     # Ensure queues exist
     await ensure_queues_exist()
 
@@ -129,8 +131,6 @@ async def run_client():
             print(f"✅ Cleaned {cleanup_count} old messages from queue")
 
         # Small delay to ensure cleanup is processed
-        import time
-
         time.sleep(1)
 
     except Exception as e:
@@ -173,8 +173,6 @@ async def run_client():
         # Wait for initialize response with timeout
         print("⏳ Waiting for initialize response...")
         try:
-            import anyio
-
             with anyio.move_on_after(30):  # 30 second timeout
                 response = await read_stream.receive()
                 if isinstance(response, Exception):
@@ -285,8 +283,6 @@ async def run_client():
 
 
 if __name__ == "__main__":
-    import sys
-
     if len(sys.argv) > 1 and sys.argv[1] == "client":
         print("🚀 Running client example...")
         asyncio.run(run_client())

@@ -5,6 +5,7 @@ Shared fixtures for SNS/SQS tests.
 import pytest
 from unittest.mock import MagicMock
 from asyncmcp.sns_sqs.utils import SnsSqsServerConfig, SnsSqsClientConfig
+from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest
 
 
 @pytest.fixture
@@ -39,16 +40,12 @@ def sample_sqs_message():
 @pytest.fixture
 def sample_jsonrpc_request():
     """Sample JSON-RPC request message."""
-    from mcp.types import JSONRPCMessage, JSONRPCRequest
-
     return JSONRPCMessage(root=JSONRPCRequest(method="test/method", params={"key": "value"}, jsonrpc="2.0", id=1))
 
 
 @pytest.fixture
 def sample_jsonrpc_notification():
     """Sample JSON-RPC notification message."""
-    from mcp.types import JSONRPCMessage, JSONRPCNotification
-
     return JSONRPCMessage(root=JSONRPCNotification(method="test/notification", params={"event": "test"}, jsonrpc="2.0"))
 
 

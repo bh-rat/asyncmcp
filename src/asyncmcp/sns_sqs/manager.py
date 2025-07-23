@@ -180,7 +180,7 @@ class SnsSqsSessionManager:
 
         if not client_topic_arn:
             logger.error("Initialize request missing required 'client_topic_arn' parameter")
-            delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, sqs_message["ReceiptHandle"])
+            await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, sqs_message["ReceiptHandle"])
             return
 
         async with self._session_lock:

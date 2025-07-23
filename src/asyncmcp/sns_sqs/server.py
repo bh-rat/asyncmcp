@@ -3,11 +3,11 @@ SNS/SQS server transport implementation.
 """
 
 import logging
-from typing import Any, AsyncIterator, Optional, Tuple
+from typing import Any, Optional
 from contextlib import asynccontextmanager
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from anyio.streams.memory import MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
 
 from asyncmcp.common.aws_queue_utils import create_common_client_message_attributes
