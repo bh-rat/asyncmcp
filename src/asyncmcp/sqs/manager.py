@@ -16,14 +16,14 @@ from mcp.shared.message import SessionMessage
 from mcp.server.lowlevel.server import Server as MCPServer
 
 from .server import SqsTransport, OutgoingMessageEvent
-from .utils import SqsTransportConfig
+from .utils import SqsServerConfig
 from asyncmcp.common.aws_queue_utils import to_session_message, delete_sqs_message
 
 logger = logging.getLogger(__name__)
 
 
 class SqsSessionManager:
-    def __init__(self, app: MCPServer, config: SqsTransportConfig, sqs_client: Any, stateless: bool = False):
+    def __init__(self, app: MCPServer, config: SqsServerConfig, sqs_client: Any, stateless: bool = False):
         self.app = app
         self.config = config
         self.sqs_client = sqs_client

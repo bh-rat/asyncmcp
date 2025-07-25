@@ -9,7 +9,7 @@ import anyio
 from mcp.shared.message import SessionMessage
 
 # Updated imports to use correct modules
-from asyncmcp.sqs.utils import SqsTransportConfig
+from asyncmcp.sqs.utils import SqsClientConfig
 from asyncmcp.sqs.client import sqs_client, _create_sqs_message_attributes
 from asyncmcp.common.aws_queue_utils import to_session_message
 
@@ -40,7 +40,7 @@ class TestSqsClient:
             mock_run_sync.return_value = {"Messages": []}
 
             with anyio.move_on_after(0.1):  # Add timeout to prevent hanging
-                async with sqs_client(transport_config, mock_sqs_client, client_response_queue_url) as (
+                async with sqs_client(transport_config, mock_sqs_client) as (
                     read_stream,
                     write_stream,
                 ):
@@ -60,7 +60,7 @@ class TestSqsClient:
         mock_sqs_client.receive_message.return_value = {"Messages": []}
 
         with anyio.move_on_after(0.5):
-            async with sqs_client(transport_config, mock_sqs_client, client_response_queue_url) as (
+            async with sqs_client(transport_config, mock_sqs_client) as (
                 read_stream,
                 write_stream,
             ):
@@ -95,7 +95,7 @@ class TestSqsClient:
         mock_sqs_client.receive_message.return_value = {"Messages": []}
 
         with anyio.move_on_after(0.5):
-            async with sqs_client(transport_config, mock_sqs_client, client_response_queue_url) as (
+            async with sqs_client(transport_config, mock_sqs_client) as (
                 read_stream,
                 write_stream,
             ):
@@ -144,7 +144,7 @@ class TestSqsClient:
             mock_sqs_client.delete_message.return_value = {}
 
             with anyio.move_on_after(0.5):
-                async with sqs_client(transport_config, mock_sqs_client, client_response_queue_url) as (
+                async with sqs_client(transport_config, mock_sqs_client) as (
                     read_stream,
                     write_stream,
                 ):
@@ -155,8 +155,16 @@ class TestSqsClient:
                         assert response.message.root.result == {"status": "success"}
 
     @pytest.mark.anyio
-    async def test_client_error_handling_in_reader(self, transport_config, client_response_queue_url, mock_sqs_client):
+    async def test_client_error_handling_in_reader(self, client_response_queue_url, mock_sqs_client):
         """Test error handling in client SQS reader task."""
+        # Create a custom config with fast polling for this test
+        fast_config = SqsClientConfig(
+            read_queue_url="http://localhost:4566/000000000000/server-requests",
+            response_queue_url="http://localhost:4566/000000000000/client-responses",
+            client_id="test-client",
+            poll_interval_seconds=0.01,  # Very fast polling for quick retries
+        )
+
         call_count = 0
 
         def side_effect(*args, **kwargs):
@@ -172,7 +180,7 @@ class TestSqsClient:
         mock_sqs_client.receive_message.side_effect = side_effect
 
         with anyio.move_on_after(0.2):
-            async with sqs_client(transport_config, mock_sqs_client, client_response_queue_url) as (
+            async with sqs_client(fast_config, mock_sqs_client) as (
                 read_stream,
                 write_stream,
             ):
@@ -205,7 +213,7 @@ class TestSqsClient:
         mock_sqs_client.receive_message.return_value = {"Messages": []}
 
         with anyio.move_on_after(0.5):
-            async with sqs_client(transport_config, mock_sqs_client, client_response_queue_url) as (
+            async with sqs_client(transport_config, mock_sqs_client) as (
                 read_stream,
                 write_stream,
             ):
@@ -307,20 +315,23 @@ class TestClientConfigurationValidation:
     """Test client configuration validation with new dynamic queue system."""
 
     def test_client_config_creation(self):
-        """Test basic client configuration creation (no write_queue_url)."""
-        config = SqsTransportConfig(
+        """Test basic client configuration creation."""
+        config = SqsClientConfig(
             read_queue_url="http://localhost:4566/000000000000/server-requests",
+            response_queue_url="http://localhost:4566/000000000000/client-responses",
         )
 
         assert config.read_queue_url == "http://localhost:4566/000000000000/server-requests"
+        assert config.response_queue_url == "http://localhost:4566/000000000000/client-responses"
         assert config.max_messages == 10  # Default value
         assert config.wait_time_seconds == 20  # Default value
         assert config.poll_interval_seconds == 5.0  # Default value
 
     def test_client_config_with_custom_values(self):
         """Test client configuration with custom values."""
-        config = SqsTransportConfig(
+        config = SqsClientConfig(
             read_queue_url="http://localhost:4566/000000000000/server-requests",
+            response_queue_url="http://localhost:4566/000000000000/client-responses",
             max_messages=5,
             wait_time_seconds=10,
             poll_interval_seconds=1.0,
@@ -335,8 +346,12 @@ class TestClientConfigurationValidation:
     def test_client_config_no_write_queue_needed(self):
         """Test that client config no longer requires write_queue_url."""
         # This should work fine - no write_queue_url needed
-        config = SqsTransportConfig(read_queue_url="http://localhost:4566/000000000000/server-requests")
+        config = SqsClientConfig(
+            read_queue_url="http://localhost:4566/000000000000/server-requests",
+            response_queue_url="http://localhost:4566/000000000000/client-responses",
+        )
 
         assert config.read_queue_url == "http://localhost:4566/000000000000/server-requests"
+        assert config.response_queue_url == "http://localhost:4566/000000000000/client-responses"
         # write_queue_url is no longer a field
         assert not hasattr(config, "write_queue_url")

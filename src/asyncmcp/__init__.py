@@ -10,7 +10,7 @@ from asyncmcp.webhook.utils import WebhookServerConfig, WebhookClientConfig
 from asyncmcp.webhook.client import webhook_client
 from asyncmcp.webhook.server import webhook_server
 from asyncmcp.sqs.server import SqsTransport, sqs_server
-from asyncmcp.sqs.utils import SqsTransportConfig
+from asyncmcp.sqs.utils import SqsServerConfig, SqsClientConfig
 from asyncmcp.sqs.manager import SqsSessionManager
 
 from asyncmcp.sns_sqs.client import sns_sqs_client
@@ -34,7 +34,8 @@ __all__ = [
     "webhook_server",
     "__version__",
     "SqsTransport",
-    "SqsTransportConfig",
+    "SqsServerConfig",
+    "SqsClientConfig",
     "SqsSessionManager",
     # SNS+SQS Transport
     "sns_sqs_client",

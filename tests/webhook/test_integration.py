@@ -175,7 +175,7 @@ class TestWebhookIntegration:
         """Test multiple clients with different webhook URLs."""
         # Create configs for server and two clients
         from asyncmcp.webhook.utils import WebhookServerConfig, WebhookClientConfig
-        
+
         server_config = WebhookServerConfig(
             timeout_seconds=5.0,
         )

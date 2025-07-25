@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, JSONRPCNotification
 
-from asyncmcp.sqs.utils import SqsTransportConfig
+from asyncmcp.sqs.utils import SqsClientConfig, SqsServerConfig
 
 
 @pytest.fixture
@@ -111,12 +111,10 @@ def sample_sqs_response():
 
 @pytest.fixture
 def client_transport_config():
-    """Create a test client transport configuration (no write_queue_url)."""
-    return SqsTransportConfig(
+    """Create a test client transport configuration."""
+    return SqsClientConfig(
         read_queue_url="http://localhost:4566/000000000000/server-requests",  # Client sends to server queue
-        max_messages=5,
-        wait_time_seconds=1,
-        poll_interval_seconds=0.01,  # Faster polling for tests
+        response_queue_url="http://localhost:4566/000000000000/client-responses",
         client_id="test-client",
         transport_timeout_seconds=None,
     )
@@ -130,8 +128,8 @@ def client_response_queue_url():
 
 @pytest.fixture
 def server_transport_config():
-    """Create a test server transport configuration (no write_queue_url)."""
-    return SqsTransportConfig(
+    """Create a test server transport configuration."""
+    return SqsServerConfig(
         read_queue_url="http://localhost:4566/000000000000/server-requests",  # Server reads from this queue
         max_messages=10,
         wait_time_seconds=1,
@@ -145,15 +143,13 @@ def client_server_config():
     mock_client_sqs = MagicMock()
     mock_server_sqs = MagicMock()
 
-    client_config = SqsTransportConfig(
+    client_config = SqsClientConfig(
         read_queue_url="http://localhost:4566/000000000000/server-requests",  # Client sends to server queue
-        max_messages=5,
-        wait_time_seconds=1,
-        poll_interval_seconds=0.01,  # Faster polling for tests
+        response_queue_url="http://localhost:4566/000000000000/client-responses",
         client_id="test-client",
     )
 
-    server_config = SqsTransportConfig(
+    server_config = SqsServerConfig(
         read_queue_url="http://localhost:4566/000000000000/server-requests",  # Server reads requests
         max_messages=10,
         wait_time_seconds=1,
@@ -207,8 +203,8 @@ def custom_message_attributes():
 
 @pytest.fixture
 def timeout_transport_config():
-    """Transport configuration with timeout for testing (no write_queue_url)."""
-    return SqsTransportConfig(
+    """Transport configuration with timeout for testing."""
+    return SqsServerConfig(
         read_queue_url="http://localhost:4566/000000000000/timeout-queue",
         poll_interval_seconds=0.01,
         transport_timeout_seconds=0.1,  # Short timeout for testing
@@ -217,8 +213,8 @@ def timeout_transport_config():
 
 @pytest.fixture
 def high_throughput_config():
-    """Configuration optimized for high throughput testing (no write_queue_url)."""
-    return SqsTransportConfig(
+    """Configuration optimized for high throughput testing."""
+    return SqsServerConfig(
         read_queue_url="http://localhost:4566/000000000000/high-throughput-read",
         max_messages=10,  # Process more messages per batch
         wait_time_seconds=1,
