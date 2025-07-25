@@ -24,6 +24,24 @@ def sample_jsonrpc_request():
 
 
 @pytest.fixture
+def sample_jsonrpc_initialize_request():
+    """Sample JSON-RPC initialize request with response_queue_url."""
+    return JSONRPCMessage(
+        root=JSONRPCRequest(
+            jsonrpc="2.0",
+            id=1,
+            method="initialize",
+            params={
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "test-client", "version": "1.0"},
+                "response_queue_url": "http://localhost:4566/000000000000/client-responses",
+            },
+        )
+    )
+
+
+@pytest.fixture
 def sample_jsonrpc_response():
     """Sample JSON-RPC response message."""
     return JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=1, result={"status": "success"}))
@@ -43,6 +61,29 @@ def sample_sqs_message():
         "ReceiptHandle": "handle-1",
         "Body": json.dumps({"jsonrpc": "2.0", "id": 1, "method": "test/method", "params": {"key": "value"}}),
         "MessageAttributes": {"ClientId": {"DataType": "String", "StringValue": "test-client"}},
+    }
+
+
+@pytest.fixture
+def sample_initialize_sqs_message():
+    """Sample SQS initialize message with response_queue_url."""
+    return {
+        "MessageId": "init-msg-1",
+        "ReceiptHandle": "init-handle-1",
+        "Body": json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test-client", "version": "1.0"},
+                    "response_queue_url": "http://localhost:4566/000000000000/client-responses",
+                },
+            }
+        ),
+        "MessageAttributes": {"Method": {"DataType": "String", "StringValue": "initialize"}},
     }
 
 
@@ -70,10 +111,9 @@ def sample_sqs_response():
 
 @pytest.fixture
 def client_transport_config():
-    """Create a test client transport configuration."""
+    """Create a test client transport configuration (no write_queue_url)."""
     return SqsTransportConfig(
-        read_queue_url="http://localhost:4566/000000000000/client-responses",
-        write_queue_url="http://localhost:4566/000000000000/server-requests",
+        read_queue_url="http://localhost:4566/000000000000/server-requests",  # Client sends to server queue
         max_messages=5,
         wait_time_seconds=1,
         poll_interval_seconds=0.01,  # Faster polling for tests
@@ -83,11 +123,16 @@ def client_transport_config():
 
 
 @pytest.fixture
+def client_response_queue_url():
+    """Client's response queue URL for dynamic queue system."""
+    return "http://localhost:4566/000000000000/client-responses"
+
+
+@pytest.fixture
 def server_transport_config():
-    """Create a test server transport configuration."""
+    """Create a test server transport configuration (no write_queue_url)."""
     return SqsTransportConfig(
-        read_queue_url="http://localhost:4566/000000000000/server-requests",
-        write_queue_url="http://localhost:4566/000000000000/client-responses",
+        read_queue_url="http://localhost:4566/000000000000/server-requests",  # Server reads from this queue
         max_messages=10,
         wait_time_seconds=1,
         poll_interval_seconds=0.01,  # Faster polling for tests
@@ -101,8 +146,7 @@ def client_server_config():
     mock_server_sqs = MagicMock()
 
     client_config = SqsTransportConfig(
-        read_queue_url="http://localhost:4566/000000000000/client-responses",
-        write_queue_url="http://localhost:4566/000000000000/server-requests",
+        read_queue_url="http://localhost:4566/000000000000/server-requests",  # Client sends to server queue
         max_messages=5,
         wait_time_seconds=1,
         poll_interval_seconds=0.01,  # Faster polling for tests
@@ -110,15 +154,18 @@ def client_server_config():
     )
 
     server_config = SqsTransportConfig(
-        read_queue_url="http://localhost:4566/000000000000/server-requests",
-        write_queue_url="http://localhost:4566/000000000000/client-responses",
+        read_queue_url="http://localhost:4566/000000000000/server-requests",  # Server reads requests
         max_messages=10,
         wait_time_seconds=1,
         poll_interval_seconds=0.01,  # Faster polling for tests
     )
 
     return {
-        "client": {"config": client_config, "sqs_client": mock_client_sqs},
+        "client": {
+            "config": client_config,
+            "sqs_client": mock_client_sqs,
+            "response_queue_url": "http://localhost:4566/000000000000/client-responses",
+        },
         "server": {"config": server_config, "sqs_client": mock_server_sqs},
     }
 
@@ -160,10 +207,9 @@ def custom_message_attributes():
 
 @pytest.fixture
 def timeout_transport_config():
-    """Transport configuration with timeout for testing."""
+    """Transport configuration with timeout for testing (no write_queue_url)."""
     return SqsTransportConfig(
         read_queue_url="http://localhost:4566/000000000000/timeout-queue",
-        write_queue_url="http://localhost:4566/000000000000/timeout-write-queue",
         poll_interval_seconds=0.01,
         transport_timeout_seconds=0.1,  # Short timeout for testing
     )
@@ -171,12 +217,22 @@ def timeout_transport_config():
 
 @pytest.fixture
 def high_throughput_config():
-    """Configuration optimized for high throughput testing."""
+    """Configuration optimized for high throughput testing (no write_queue_url)."""
     return SqsTransportConfig(
         read_queue_url="http://localhost:4566/000000000000/high-throughput-read",
-        write_queue_url="http://localhost:4566/000000000000/high-throughput-write",
         max_messages=10,  # Process more messages per batch
         wait_time_seconds=1,
         poll_interval_seconds=0.001,  # Very fast polling
         visibility_timeout_seconds=10,
     )
+
+
+@pytest.fixture
+def mock_mcp_server():
+    """Mock MCP server for session manager testing."""
+    from unittest.mock import AsyncMock
+
+    mock_server = MagicMock()
+    mock_server.run = AsyncMock()
+    mock_server.create_initialization_options = MagicMock(return_value={})
+    return mock_server

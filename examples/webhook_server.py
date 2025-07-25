@@ -10,7 +10,7 @@ import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.shared._httpx_utils import create_mcp_http_client
 
-from asyncmcp.webhook.server import webhook_server
+from asyncmcp.webhook.manager import WebhookSessionManager
 from asyncmcp.webhook.utils import WebhookTransportConfig
 from shared import create_server_transport_config, print_colored, TRANSPORT_WEBHOOK
 
@@ -40,7 +40,13 @@ async def fetch_website(
     default=8001,
     help="Port for webhook responses (not used by server, but kept for consistency)",
 )
-def main(server_port, webhook_port) -> int:
+@click.option(
+    "--stateless",
+    is_flag=True,
+    default=False,
+    help="Run in stateless mode",
+)
+def main(server_port, webhook_port, stateless) -> int:
     print_colored("🚀 Starting MCP Website Fetcher Server with Webhook Transport", "cyan")
     app = Server("mcp-website-fetcher")
 
@@ -77,20 +83,23 @@ def main(server_port, webhook_port) -> int:
         print_colored("🔧 Configuring webhook transport", "yellow")
 
         config = WebhookTransportConfig(
-            server_host="localhost",
-            server_port=server_port,
-            webhook_host="localhost",
-            webhook_port=webhook_port,
+            server_url=f"http://localhost:{server_port}/mcp/request",
+            webhook_url=f"http://localhost:{webhook_port}/webhook/response",
         )
 
-        async with webhook_server(config) as (read_stream, write_stream):
-            print_colored("📡 Server ready and listening for requests", "green")
-            print_colored(f"🔗 Server listening on http://localhost:{server_port}/mcp/request", "blue")
-            await app.run(read_stream, write_stream, app.create_initialization_options())
+        # Create session manager
+        session_manager = WebhookSessionManager(app, config, stateless=stateless)
+
+        print_colored("📡 Starting webhook session manager", "green")
+        print_colored(f"🔗 Server listening on {config.server_url}", "blue")
+
+        async with session_manager.run():
+            # Keep the server running
+            await anyio.sleep_forever()
 
     anyio.run(arun)
     return 0
 
 
 if __name__ == "__main__":
-    main() 
+    main()

@@ -26,17 +26,36 @@ asyncmcp explores supporting more of the async transport layer implementations f
 
 The whole idea of an **MCP server with async transport layer** is that it doesn't have to respond immediately to any requests. It can choose to direct them to internal queues for processing and the client doesn't have to stick around for the response.
 
-## Current capabilities
+## Supported Transport Types
 
-### Transport layer : sns-sqs
+AsyncMCP provides three different transport implementations for different use cases:
 
-- Server : Transport layer that listens to a queue for MCP requests and writes the responses to a topic
-- Client : Transport layer that writes requests to a topic and listens to a queue for responses
+### 1. SNS+SQS Transport
 
-### Transport layer : sqs
+**Best for**: High-throughput pub/sub architectures with message fanout capabilities
 
-- Server : Transport layer that listens to a queue for MCP requests and writes the responses to another queue
-- Client : Transport layer that writes requests to a queue and listens to another queue for responses
+- **Server**: Listens to SQS queue for MCP requests, publishes responses to SNS topic
+- **Client**: Publishes requests to SNS topic, listens to dedicated SQS queue for responses
+- **Features**: Topic-based routing, message filtering, automatic scaling
+- **Use Case**: Multiple clients, broadcast scenarios, cloud-native architectures
+
+### 2. SQS-Only Transport
+
+**Best for**: Simple point-to-point messaging with guaranteed delivery
+
+- **Server**: Listens to request queue for MCP requests, sends responses to client-specific response queues
+- **Client**: Sends requests to server queue, listens to dedicated response queue
+- **Features**: Simple queue-to-queue communication, dynamic queue creation
+- **Use Case**: Direct client-server communication, cost-effective messaging
+
+### 3. Webhook Transport
+
+**Best for**: HTTP-based integration with existing web infrastructure
+
+- **Server**: Receives HTTP POST requests from clients, sends responses via HTTP POST to client webhook URLs
+- **Client**: Sends HTTP POST requests to server, receives responses via HTTP webhook
+- **Features**: HTTP-based, firewall-friendly, web-native integration
+- **Use Case**: Web applications, microservices, HTTP-based architectures
 
 ## Installation and Usage
 
@@ -50,22 +69,23 @@ uv add asyncmcp
 pip install asyncmcp
 ```
 
-### Basic server setup
+## Basic Usage Examples
 
-Note : we don't support FastMCP yet. The examples in this repo uses the [basic way of creating MCP servers and client](https://modelcontextprotocol.io/docs/concepts/architecture#implementation-example) 
-<br/>
-Here's a basic example of implementing an MCP server which supports sns-sqs as the transport layer:
+Note: We don't support FastMCP yet. The examples in this repo use the [basic way of creating MCP servers and clients](https://modelcontextprotocol.io/docs/concepts/architecture#implementation-example).
 
+### SNS+SQS Transport
+
+#### Server Setup
 ```python
 import boto3
 from asyncmcp.sns_sqs.server import sns_sqs_server
-from asyncmcp import SnsSqsTransportConfig
+from asyncmcp import SnsSqsServerConfig
 
 # Configure transport
-config = SnsSqsTransportConfig(
+config = SnsSqsServerConfig(
     sqs_queue_url="https://sqs.region.amazonaws.com/account/service-queue",
     sns_topic_arn="arn:aws:sns:region:account:mcp-responses"
-)  # more configurable params available.
+)
 
 # Create AWS clients
 sqs_client = boto3.client('sqs')
@@ -77,20 +97,17 @@ async def main():
         pass
 ```
 
-### Basic client setup
-
-Here's a basic example of implementing an MCP client which supports sns-sqs as the transport layer:
-
+#### Client Setup
 ```python
 import boto3
 from asyncmcp.sns_sqs.client import sns_sqs_client
-from asyncmcp import SnsSqsTransportConfig
+from asyncmcp import SnsSqsClientConfig
 
 # Configure transport
-config = SnsSqsTransportConfig(
+config = SnsSqsClientConfig(
     sqs_queue_url="https://sqs.region.amazonaws.com/account/client-queue",
     sns_topic_arn="arn:aws:sns:region:account:mcp-requests"
-)  # more configurable params available.
+)
 
 # Create AWS clients
 sqs_client = boto3.client('sqs')
@@ -102,16 +119,147 @@ async def main():
         pass
 ```
 
-You can check full examples at `/examples/website_server.py` and `/examples/website_client.py`.
-<br/>
-Read more at `/examples/README.md`
+### SQS-Only Transport
+
+#### Server Setup
+```python
+import boto3
+from asyncmcp.sqs.server import sqs_server
+from asyncmcp import SqsTransportConfig
+
+# Configure transport
+config = SqsTransportConfig(
+    request_queue_url="https://sqs.region.amazonaws.com/account/server-requests",
+    response_queue_url="https://sqs.region.amazonaws.com/account/client-responses"
+)
+
+# Create AWS client
+sqs_client = boto3.client('sqs')
+
+async def main():
+    async with sqs_server(config, sqs_client) as (read_stream, write_stream):
+        # Your MCP server logic here
+        pass
+```
+
+#### Client Setup
+```python
+import boto3
+from asyncmcp.sqs.client import sqs_client
+from asyncmcp import SqsTransportConfig
+
+# Configure transport
+config = SqsTransportConfig(
+    request_queue_url="https://sqs.region.amazonaws.com/account/server-requests",
+    response_queue_url="https://sqs.region.amazonaws.com/account/client-responses"
+)
+
+# Create AWS client
+sqs_client = boto3.client('sqs')
+
+async def main():
+    async with sqs_client(config, sqs_client) as (read_stream, write_stream):
+        # Your MCP client logic here
+        pass
+```
+
+### Webhook Transport
+
+#### Server Setup
+```python
+import httpx
+from asyncmcp.webhook.manager import WebhookSessionManager
+from asyncmcp import WebhookTransportConfig
+from mcp.server.lowlevel import Server
+
+# Configure transport
+config = WebhookTransportConfig(
+    server_host="localhost",
+    server_port=8000,
+    timeout_seconds=30.0
+)
+
+# Create MCP server
+app = Server("my-webhook-server")
+
+async def main():
+    session_manager = WebhookSessionManager(app, config)
+    async with session_manager.run():
+        # Server runs and handles HTTP requests at /mcp/request
+        await anyio.sleep_forever()
+```
+
+#### Client Setup
+```python
+from asyncmcp.webhook.client import webhook_client
+from asyncmcp import WebhookTransportConfig
+
+# Configure transport
+config = WebhookTransportConfig(
+    server_host="localhost",
+    server_port=8000,
+    webhook_host="localhost",
+    webhook_port=8001,
+    timeout_seconds=30.0
+)
+
+async def main():
+    async with webhook_client(config) as (read_stream, write_stream):
+        # Your MCP client logic here
+        # Client sends HTTP requests to server and receives responses via webhook
+        pass
+```
+
+## Working Examples
+
+Complete working examples are available in the `/examples/` directory:
+
+### SNS+SQS Examples
+```bash
+# Terminal 1: Start SNS+SQS server
+uv run examples/website_server.py
+
+# Terminal 2: Start SNS+SQS client
+uv run examples/website_client.py
+```
+
+### SQS-Only Examples
+```bash
+# Terminal 1: Start SQS server  
+uv run examples/website_server.py --transport sqs
+
+# Terminal 2: Start SQS client
+uv run examples/website_client.py --transport sqs
+```
+
+### Webhook Examples
+```bash
+# Terminal 1: Start webhook server
+uv run examples/webhook_server.py --server-port 8000
+
+# Terminal 2: Start webhook client
+uv run examples/webhook_client.py --server-port 8000 --webhook-port 8001
+```
+
+**Setup Requirements**: For AWS-based transports (SNS+SQS, SQS), you need LocalStack running locally. See `/examples/README.md` for detailed setup instructions.
 
 ## Limitations
 
-- **Message Size**: For SQS - message size limits are applicable (256KB standard, 2MB extended)
+### General
 - **Response Handling**: Async nature means responses may not be immediate
 - **Session Context**: Storage mechanism handled by server application, not transport
-- **Ordering**: Standard SQS doesn't guarantee message ordering
+
+### AWS-Based Transports (SNS+SQS, SQS)
+- **Message Size**: SQS message size limits apply (256KB standard, 2MB extended)
+- **Ordering**: Standard SQS doesn't guarantee message ordering (use FIFO queues if needed)
+- **AWS Dependencies**: Requires AWS credentials and proper IAM permissions
+- **Cost**: AWS charges apply for message processing
+
+### Webhook Transport
+- **HTTP Dependencies**: Requires stable HTTP connectivity between client and server
+- **Firewall Requirements**: Both client and server need accessible HTTP endpoints
+- **No Built-in Persistence**: Messages not stored if endpoints are unreachable
+- **Session Limits**: Server enforces maximum concurrent session limits (default: 1000)
 
 ## Testing
 

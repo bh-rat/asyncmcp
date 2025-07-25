@@ -21,6 +21,9 @@ from shared import (
     TRANSPORT_WEBHOOK,
 )
 
+# Add a global flag to track initialization
+_init_complete = False
+
 
 async def send_request(write_stream, method: str, params: dict = None):
     request_id = int(time.time() * 1000) % 100000
@@ -33,6 +36,7 @@ async def handle_message(session_message: SessionMessage):
 
 
 async def handle_response(message):
+    global _init_complete
     if hasattr(message, "error"):
         error = message.error
         print_colored(f"❌ Error: {error}", "red")
@@ -46,6 +50,7 @@ async def handle_response(message):
     if "serverInfo" in result:
         server_info = result["serverInfo"]
         print_colored(f"✅ Initialized with server: {server_info.get('name', 'Unknown')}", "green")
+        _init_complete = True  # Mark initialization as complete
         return
 
     if "tools" in result:
@@ -93,9 +98,26 @@ async def process_command(command: str, write_stream):
         print_colored("👋 Goodbye!", "yellow")
         sys.exit(0)
     elif cmd == "init":
+        global _init_complete
+        _init_complete = False  # Reset flag
+
         await send_request(write_stream, "initialize", DEFAULT_INIT_PARAMS)
-        await anyio.sleep(1)  # Brief pause to ensure response is processed
+
+        # Wait for initialize response with timeout
+        print_colored("⏳ Waiting for initialize response...", "yellow")
+        try:
+            with anyio.move_on_after(30):  # 30 second timeout
+                # Wait for the actual initialize response
+                while not _init_complete:
+                    await anyio.sleep(0.1)
+        except Exception as e:
+            print_colored(f"❌ Timeout or error waiting for initialize response: {e}", "red")
+            return
+
         await send_initialized_notification(write_stream)
+
+        # Brief delay to ensure initialized notification is processed
+        await anyio.sleep(0.5)
     elif cmd == "tools":
         await send_request(write_stream, "tools/list", {})
     elif cmd == "call":
@@ -142,15 +164,15 @@ async def interactive_cli(write_stream):
         try:
             # Read command from user
             command = input("🔗 Connected to MCP transport\n> ").strip()
-            
+
             if not command:
                 continue
-            
+
             # Process the command
             result = await process_command(command, write_stream)
             if result is False:
                 break
-                
+
         except KeyboardInterrupt:
             print_colored("\n👋 Goodbye!", "yellow")
             break
@@ -180,25 +202,23 @@ async def interactive_cli(write_stream):
 )
 def main(server_port, webhook_port, client_id) -> int:
     print_colored("🚀 Starting MCP Webhook Client", "cyan")
-    
+
     async def arun():
         # Configure webhook transport
         print_colored("🔧 Configuring webhook transport", "yellow")
-        
+
         # Create custom webhook config
         from asyncmcp.webhook.utils import WebhookTransportConfig
-        
+
         config = WebhookTransportConfig(
-            server_host="localhost",
-            server_port=server_port,
-            webhook_host="localhost",
-            webhook_port=webhook_port,
+            server_url=f"http://localhost:{server_port}/mcp/request",
+            webhook_url=f"http://localhost:{webhook_port}/webhook/response",
             client_id=client_id,
         )
-        
+
         async with webhook_client(config) as (read_stream, write_stream):
             print_colored("📡 Client connected to webhook transport", "green")
-            
+
             # Start message handler and interactive CLI concurrently
             async with anyio.create_task_group() as tg:
                 tg.start_soon(message_handler, read_stream)
@@ -209,4 +229,4 @@ def main(server_port, webhook_port, client_id) -> int:
 
 
 if __name__ == "__main__":
-    main() 
+    main()

@@ -1,25 +1,22 @@
 #!/usr/bin/env python3
 """
-Shared utilities for local CLI testing
+Shared utilities for examples.
 """
 
-import anyio
-import boto3
-import json
-import logging
-import sys
 import os
-import subprocess
+import json
 import time
-import requests
+import logging
 
 from typing import Dict, Any, Optional, List, Tuple, Union
-from dataclasses import dataclass, asdict
+import anyio
 import mcp.types as types
 from mcp.shared.message import SessionMessage
-from asyncmcp.sns_sqs.utils import SnsSqsTransportConfig
+import boto3
+
 from asyncmcp.sqs.utils import SqsTransportConfig
 from asyncmcp.webhook.utils import WebhookTransportConfig
+from asyncmcp import SnsSqsServerConfig, SnsSqsClientConfig
 
 # AWS LocalStack configuration
 AWS_CONFIG = {
@@ -28,6 +25,11 @@ AWS_CONFIG = {
     "aws_access_key_id": "test",
     "aws_secret_access_key": "test",
 }
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)8s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+)
+
 
 # Resource ARNs and URLs for LocalStack
 RESOURCES = {
@@ -37,6 +39,7 @@ RESOURCES = {
     "server_request_queue": "http://localhost:4566/000000000000/mcp-processor",
 }
 
+logger = logging.getLogger(__name__)
 # Transport types
 TRANSPORT_SNS_SQS = "sns-sqs"
 TRANSPORT_SQS = "sqs"
@@ -92,48 +95,143 @@ def print_json(data: Dict[str, Any], title: str = ""):
 
 def create_client_transport_config(
     client_id: str = "mcp-client", timeout: Optional[float] = None, transport_type: str = TRANSPORT_SNS_SQS
-) -> Union[Tuple[SnsSqsTransportConfig, Any, Any], Tuple[SqsTransportConfig, Any, None], Tuple[WebhookTransportConfig, None, None]]:
+) -> Union[
+    Tuple[SnsSqsClientConfig, Any, Any], Tuple[SqsTransportConfig, Any, None], Tuple[WebhookTransportConfig, None, None]
+]:
     """Create a standard client transport configuration"""
     if transport_type == TRANSPORT_WEBHOOK:
         config = WebhookTransportConfig(
             server_host="localhost",
             server_port=8000,
-            webhook_host="localhost", 
+            webhook_host="localhost",
             webhook_port=8001,
             client_id=client_id,
             transport_timeout_seconds=timeout,
         )
         return config, None, None
-    
-    sqs_client, sns_client = setup_aws_clients()
 
-    if transport_type == TRANSPORT_SNS_SQS:
-        config = SnsSqsTransportConfig(
-            sqs_queue_url=RESOURCES["client_response_queue"],
-            sns_topic_arn=RESOURCES["client_request_topic"],
-            max_messages=1,
-            wait_time_seconds=5,
-            poll_interval_seconds=2.0,
-            client_id=client_id,
-            transport_timeout_seconds=timeout,
-        )
-        return config, sqs_client, sns_client
-    else:  # SQS only
-        config = SqsTransportConfig(
-            read_queue_url=RESOURCES["client_response_queue"],
-            write_queue_url=RESOURCES["server_request_queue"],
-            max_messages=1,
-            wait_time_seconds=5,
-            poll_interval_seconds=2.0,
-            client_id=client_id,
-            transport_timeout_seconds=timeout,
-        )
-        return config, sqs_client, None
+    sqs_client, sns_client = setup_aws_clients()
+    return None, None, None
+
+
+def create_sns_sqs_server_config(
+    server_sqs_queue_name: str = "mcp-server-requests",
+    server_sns_topic_name: str = "mcp-server-requests",
+    region_name: str = "us-east-1",
+    endpoint_url: str = "http://localhost:4566",
+    max_messages: int = 10,
+    wait_time_seconds: int = 20,
+    poll_interval_seconds: float = 1.0,
+) -> Tuple[SnsSqsServerConfig, Any, Any]:
+    """
+    Create SNS/SQS server configuration with AWS clients.
+
+    Args:
+        server_sqs_queue_name: Name of the server's SQS queue
+        server_sns_topic_name: Name of the server's SNS topic (for receiving client requests)
+        region_name: AWS region name
+        endpoint_url: LocalStack endpoint URL
+        max_messages: Maximum messages to process per batch
+        wait_time_seconds: Long polling wait time
+        poll_interval_seconds: Polling interval between batches
+
+    Returns:
+        Tuple of (config, sqs_client, sns_client)
+    """
+    # Create AWS clients for LocalStack
+    sqs_client = boto3.client(
+        "sqs",
+        region_name=region_name,
+        endpoint_url=endpoint_url,
+        aws_access_key_id="test",
+        aws_secret_access_key="test",
+    )
+    sns_client = boto3.client(
+        "sns",
+        region_name=region_name,
+        endpoint_url=endpoint_url,
+        aws_access_key_id="test",
+        aws_secret_access_key="test",
+    )
+
+    # Get or create server SQS queue
+    try:
+        queue_response = sqs_client.get_queue_url(QueueName=server_sqs_queue_name)
+        server_sqs_queue_url = queue_response["QueueUrl"]
+        logger.info(f"Using existing server SQS queue: {server_sqs_queue_url}")
+    except sqs_client.exceptions.QueueDoesNotExist:
+        queue_response = sqs_client.create_queue(QueueName=server_sqs_queue_name)
+        server_sqs_queue_url = queue_response["QueueUrl"]
+        logger.info(f"Created new server SQS queue: {server_sqs_queue_url}")
+
+    # Get or create server SNS topic for receiving client requests
+    try:
+        topics_response = sns_client.list_topics()
+        server_topic_arn = None
+        for topic in topics_response.get("Topics", []):
+            if server_sns_topic_name in topic["TopicArn"]:
+                server_topic_arn = topic["TopicArn"]
+                break
+
+        if not server_topic_arn:
+            topic_response = sns_client.create_topic(Name=server_sns_topic_name)
+            server_topic_arn = topic_response["TopicArn"]
+            logger.info(f"Created new server SNS topic: {server_topic_arn}")
+        else:
+            logger.info(f"Using existing server SNS topic: {server_topic_arn}")
+
+        # Subscribe the server's SQS queue to the server's SNS topic
+        try:
+            # Get queue ARN for subscription
+            queue_attributes = sqs_client.get_queue_attributes(
+                QueueUrl=server_sqs_queue_url, AttributeNames=["QueueArn"]
+            )
+            queue_arn = queue_attributes["Attributes"]["QueueArn"]
+
+            subscription_response = sns_client.subscribe(TopicArn=server_topic_arn, Protocol="sqs", Endpoint=queue_arn)
+            logger.info(f"Subscribed server SQS queue to server topic: {subscription_response['SubscriptionArn']}")
+
+            # Set queue policy to allow SNS to send messages
+            policy = {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {"Service": "sns.amazonaws.com"},
+                        "Action": "sqs:SendMessage",
+                        "Resource": queue_arn,
+                        "Condition": {"ArnEquals": {"aws:SourceArn": server_topic_arn}},
+                    }
+                ],
+            }
+
+            sqs_client.set_queue_attributes(QueueUrl=server_sqs_queue_url, Attributes={"Policy": json.dumps(policy)})
+            logger.info(f"Set server queue policy to allow SNS messages from topic: {server_topic_arn}")
+
+        except Exception as e:
+            logger.warning(f"Error setting up server SNS-SQS subscription: {e}")
+
+    except Exception as e:
+        logger.error(f"Error handling server SNS topic: {e}")
+        topic_response = sns_client.create_topic(Name=server_sns_topic_name)
+        server_topic_arn = topic_response["TopicArn"]
+
+    # Create server configuration
+    config = SnsSqsServerConfig(
+        sqs_queue_url=server_sqs_queue_url,
+        max_messages=max_messages,
+        wait_time_seconds=wait_time_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+    )
+
+    return config, sqs_client, sns_client
 
 
 def create_server_transport_config(
     transport_type: str = TRANSPORT_SNS_SQS,
-) -> Union[Tuple[SnsSqsTransportConfig, Any, Any], Tuple[SqsTransportConfig, Any, None], Tuple[WebhookTransportConfig, None, None]]:
+) -> Union[
+    Tuple[SnsSqsServerConfig, Any, Any], Tuple[SqsTransportConfig, Any, None], Tuple[WebhookTransportConfig, None, None]
+]:
     """Create a standard server transport configuration"""
     if transport_type == TRANSPORT_WEBHOOK:
         config = WebhookTransportConfig(
@@ -143,11 +241,11 @@ def create_server_transport_config(
             webhook_port=8001,
         )
         return config, None, None
-    
+
     sqs_client, sns_client = setup_aws_clients()
 
     if transport_type == TRANSPORT_SNS_SQS:
-        config = SnsSqsTransportConfig(
+        config = SnsSqsServerConfig(
             sqs_queue_url=RESOURCES["server_request_queue"],
             sns_topic_arn=RESOURCES["server_response_topic"],
             max_messages=10,
@@ -164,6 +262,11 @@ def create_server_transport_config(
             poll_interval_seconds=1.0,
         )
         return config, sqs_client, None
+
+
+def get_client_response_queue_url() -> str:
+    """Get the client's response queue URL for dynamic queue configuration."""
+    return RESOURCES["client_response_queue"]
 
 
 async def send_mcp_request(write_stream, method: str, params: dict = None, request_id: int = 1) -> SessionMessage:
@@ -191,12 +294,11 @@ async def wait_for_response(read_stream, timeout: float = 500.0):
             if isinstance(response, Exception):
                 print_colored(f"❌ Exception: {response}", "red")
                 return None
-
             return response
 
-        if cancel_scope.cancelled_caught:
-            print_colored(f"⏰ Request timeout ({timeout}s)", "red")
-            return None
+            if cancel_scope.cancelled_caught:
+                print_colored(f"⏰ Request timeout ({timeout}s)", "red")
+                return None
 
     except Exception as e:
         print_colored(f"❌ Error waiting for response: {e}", "red")
@@ -265,7 +367,6 @@ def receive_from_sqs(sqs_client, queue_url: str, wait_time: int = 5, max_message
     response = sqs_client.receive_message(
         QueueUrl=queue_url, MaxNumberOfMessages=max_messages, WaitTimeSeconds=wait_time, MessageAttributeNames=["All"]
     )
-
     messages = []
     for sqs_message in response.get("Messages", []):
         try:
@@ -310,7 +411,6 @@ def print_test_results(test_results: List[tuple], title: str = "Test Results"):
     for test_name, success in test_results:
         icon = "✅" if success else "❌"
         print_colored(f"{icon} {test_name}: {'PASSED' if success else 'FAILED'}", "green" if success else "red")
-
     print_colored(f"\n🏆 Overall: {passed}/{total} tests passed", "green" if passed == total else "yellow")
 
     return passed == total
@@ -335,196 +435,224 @@ def echo_tool(params: Dict[str, Any]) -> Dict[str, Any]:
     return {"echo": message, "timestamp": time.time()}
 
 
-def calculate_tool(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Calculate tool - performs math operations"""
-    try:
-        operation = params.get("operation", "add")
-        a = float(params.get("a", 0))
-        b = float(params.get("b", 0))
+def create_sns_sqs_client_config(
+    client_sqs_queue_name: str = "mcp-client-responses",
+    server_sns_topic_name: str = "mcp-server-requests",
+    client_id: str = "example-client",
+    region_name: str = "us-east-1",
+    endpoint_url: str = "http://localhost:4566",
+    max_messages: int = 10,
+    wait_time_seconds: int = 20,
+    poll_interval_seconds: float = 1.0,
+) -> Tuple[SnsSqsClientConfig, Any, Any, str]:
+    """
+    Create SNS/SQS client configuration with AWS clients.
 
-        if operation == "add":
-            result = a + b
-        elif operation == "subtract":
-            result = a - b
-        elif operation == "multiply":
-            result = a * b
-        elif operation == "divide":
-            if b == 0:
-                raise ValueError("Division by zero")
-            result = a / b
-        else:
-            raise ValueError(f"Unknown operation: {operation}")
-
-        return {"operation": operation, "a": a, "b": b, "result": result}
-    except (ValueError, TypeError) as e:
-        raise ValueError(f"Calculation error: {e}")
-
-
-def get_standard_tools_list() -> List[Dict[str, Any]]:
-    """Get the standard list of tools"""
-    return [
-        {
-            "name": "echo",
-            "description": "Echo back the provided message",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"message": {"type": "string", "description": "The message to echo back"}},
-                "required": ["message"],
-            },
-        },
-        {
-            "name": "calculate",
-            "description": "Perform mathematical calculations",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "operation": {
-                        "type": "string",
-                        "enum": ["add", "subtract", "multiply", "divide"],
-                        "description": "The mathematical operation to perform",
-                    },
-                    "a": {"type": "number", "description": "The first number"},
-                    "b": {"type": "number", "description": "The second number"},
-                },
-                "required": ["operation", "a", "b"],
-            },
-        },
-        {
-            "name": "process_data",
-            "description": "Process data in background (async simulation)",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "data": {"type": "string", "description": "The data to process"},
-                    "processing_time": {"type": "integer", "description": "Processing time in seconds", "default": 5},
-                },
-                "required": ["data"],
-            },
-        },
-    ]
-
-
-@dataclass
-class BackgroundTask:
-    """Represents a background processing task"""
-
-    request_id: int
-    method: str
-    params: Dict[str, Any]
-    submitted_at: float
-    client_id: str = "unknown"
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization"""
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BackgroundTask":
-        """Create from dictionary"""
-        return cls(**data)
-
-
-class TaskStorage:
-    """Persistent task storage using JSON file"""
-
-    def __init__(self, storage_file: str = "background_tasks.json"):
-        self.storage_file = storage_file
-
-    def load_tasks(self) -> List[BackgroundTask]:
-        """Load tasks from storage"""
-        if not os.path.exists(self.storage_file):
-            return []
-
-        try:
-            with open(self.storage_file, "r") as f:
-                data = json.load(f)
-                return [BackgroundTask.from_dict(task_data) for task_data in data]
-        except (json.JSONDecodeError, KeyError, FileNotFoundError):
-            return []
-
-    def save_tasks(self, tasks: List[BackgroundTask]):
-        """Save tasks to storage"""
-        try:
-            with open(self.storage_file, "w") as f:
-                json.dump([task.to_dict() for task in tasks], f, indent=2)
-        except Exception as e:
-            logging.error(f"Error saving tasks: {e}")
-
-    def add_task(self, task: BackgroundTask):
-        """Add a new task"""
-        tasks = self.load_tasks()
-        tasks.append(task)
-        self.save_tasks(tasks)
-
-    def remove_task(self, task_id: int) -> Optional[BackgroundTask]:
-        """Remove and return a task by ID"""
-        tasks = self.load_tasks()
-        for i, task in enumerate(tasks):
-            if task.request_id == task_id:
-                removed_task = tasks.pop(i)
-                self.save_tasks(tasks)
-                return removed_task
-        return None
-
-    def get_task(self, task_id: int) -> Optional[BackgroundTask]:
-        """Get a task by ID"""
-        tasks = self.load_tasks()
-        for task in tasks:
-            if task.request_id == task_id:
-                return task
-        return None
-
-
-def process_data_tool(
-    params: Dict[str, Any], request_id: int, client_id: str = "unknown", task_storage: Optional[TaskStorage] = None
-) -> Dict[str, Any]:
-    """Process data tool - background processing simulation"""
-    data = params.get("data", "")
-    processing_time = params.get("processing_time", 5)
-
-    # Create background task
-    task = BackgroundTask(
-        request_id=request_id, method="tools/call", params=params, submitted_at=time.time(), client_id=client_id
+    Returns:
+        Tuple of (config, sqs_client, sns_client, client_topic_arn)
+    """
+    # Create AWS clients for LocalStack
+    sqs_client = boto3.client(
+        "sqs",
+        region_name=region_name,
+        endpoint_url=endpoint_url,
+        aws_access_key_id="test",
+        aws_secret_access_key="test",
+    )
+    sns_client = boto3.client(
+        "sns",
+        region_name=region_name,
+        endpoint_url=endpoint_url,
+        aws_access_key_id="test",
+        aws_secret_access_key="test",
     )
 
-    # Store task if storage provided
-    if task_storage:
-        task_storage.add_task(task)
-
-    return {
-        "status": "processing",
-        "task_id": request_id,
-        "data": data,
-        "processing_time": processing_time,
-        "submitted_at": task.submitted_at,
-        "message": f"Background processing started for: {data}",
-    }
-
-
-def ensure_localstack_running():
+    # Get or create client SQS queue for responses
     try:
-        response = requests.get("http://localhost:4566/health", timeout=2)
-        if response.status_code == 200:
-            print_colored("🟢 LocalStack is already running.", "green")
-            return
-    except Exception:
-        print_colored("🔴 LocalStack not running. Starting LocalStack...", "yellow")
-        subprocess.Popen(["localstack", "start", "-d"])
-        # Wait for LocalStack to be ready
-        for _ in range(30):
+        queue_response = sqs_client.get_queue_url(QueueName=client_sqs_queue_name)
+        client_sqs_queue_url = queue_response["QueueUrl"]
+        logger.info(f"Using existing client SQS queue: {client_sqs_queue_url}")
+    except sqs_client.exceptions.QueueDoesNotExist:
+        queue_response = sqs_client.create_queue(QueueName=client_sqs_queue_name)
+        client_sqs_queue_url = queue_response["QueueUrl"]
+        logger.info(f"Created new client SQS queue: {client_sqs_queue_url}")
+
+    # Get or create server SNS topic for client requests
+    try:
+        topics_response = sns_client.list_topics()
+        server_topic_arn = None
+        for topic in topics_response.get("Topics", []):
+            if server_sns_topic_name in topic["TopicArn"]:
+                server_topic_arn = topic["TopicArn"]
+                break
+
+        if not server_topic_arn:
+            topic_response = sns_client.create_topic(Name=server_sns_topic_name)
+            server_topic_arn = topic_response["TopicArn"]
+            logger.info(f"Created new server SNS topic: {server_topic_arn}")
+        else:
+            logger.info(f"Using existing server SNS topic: {server_topic_arn}")
+    except Exception as e:
+        logger.error(f"Error handling SNS topic: {e}")
+        topic_response = sns_client.create_topic(Name=server_sns_topic_name)
+        server_topic_arn = topic_response["TopicArn"]
+
+    # Create client response topic (where server sends responses back to this client)
+    client_topic_name = f"mcp-client-{client_id}-responses"
+    try:
+        client_topic_response = sns_client.create_topic(Name=client_topic_name)
+        client_topic_arn = client_topic_response["TopicArn"]
+        logger.info(f"Created new client response topic: {client_topic_arn}")
+
+        # Subscribe the client's SQS queue to the client's response topic
+        # Convert the LocalStack URL to the ARN format that SNS expects
+        queue_attributes = sqs_client.get_queue_attributes(QueueUrl=client_sqs_queue_url, AttributeNames=["QueueArn"])
+        queue_arn = queue_attributes["Attributes"]["QueueArn"]
+
+        subscription_response = sns_client.subscribe(TopicArn=client_topic_arn, Protocol="sqs", Endpoint=queue_arn)
+        logger.info(f"Subscribed client SQS queue to response topic: {subscription_response['SubscriptionArn']}")
+
+        # Set queue policy to allow SNS to send messages
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"Service": "sns.amazonaws.com"},
+                    "Action": "sqs:SendMessage",
+                    "Resource": queue_arn,
+                    "Condition": {"ArnEquals": {"aws:SourceArn": client_topic_arn}},
+                }
+            ],
+        }
+
+        sqs_client.set_queue_attributes(QueueUrl=client_sqs_queue_url, Attributes={"Policy": json.dumps(policy)})
+        logger.info(f"Set queue policy to allow SNS messages from topic: {client_topic_arn}")
+
+    except Exception as e:
+        logger.error(f"Error creating client topic and subscription: {e}")
+        raise
+
+    # Create client configuration
+    config = SnsSqsClientConfig(
+        sqs_queue_url=client_sqs_queue_url,
+        sns_topic_arn=server_topic_arn,
+        client_id=client_id,
+        max_messages=max_messages,
+        wait_time_seconds=wait_time_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+    )
+
+    return config, sqs_client, sns_client, client_topic_arn
+
+
+def create_sqs_config(
+    queue_name: str = "mcp-processor",
+    response_queue_name: str = "mcp-consumer",
+    region_name: str = "us-east-1",
+    endpoint_url: str = "http://localhost:4566",
+    max_messages: int = 10,
+    wait_time_seconds: int = 20,
+    poll_interval_seconds: float = 1.0,
+) -> Union[Tuple[SnsSqsServerConfig, Any, Any], Tuple[SqsTransportConfig, Any, None]]:
+    """
+    Create SQS configuration with AWS clients.
+
+    Args:
+        queue_name: Name of the main SQS queue
+        response_queue_name: Name of the response queue
+        region_name: AWS region name
+        endpoint_url: LocalStack endpoint URL
+        max_messages: Maximum messages to process per batch
+        wait_time_seconds: Long polling wait time
+        poll_interval_seconds: Polling interval between batches
+
+    Returns:
+        Tuple of (config, sqs_client, sns_client) - sns_client is None for SQS-only
+    """
+    # Create AWS SQS client for LocalStack
+    sqs_client = boto3.client(
+        "sqs",
+        region_name=region_name,
+        endpoint_url=endpoint_url,
+        aws_access_key_id="test",
+        aws_secret_access_key="test",
+    )
+
+    # Get or create main SQS queue
+    queue_response = sqs_client.get_queue_url(QueueName=queue_name)
+    queue_url = queue_response["QueueUrl"]
+    logger.info(f"Using existing SQS queue: {queue_url}")
+
+    response_queue_response = sqs_client.get_queue_url(QueueName=response_queue_name)
+    response_queue_url = response_queue_response["QueueUrl"]
+    logger.info(f"Using existing response SQS queue: {response_queue_url}")
+
+    # Create configuration
+    config = SqsTransportConfig(
+        read_queue_url=queue_url,
+        response_queue_url=response_queue_url,
+        max_messages=max_messages,
+        wait_time_seconds=wait_time_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+    )
+
+    return config, sqs_client, None
+
+
+async def cleanup_aws_resources(
+    sqs_client: Any, sns_client: Any = None, queue_names: list = None, topic_names: list = None
+):
+    """
+    Clean up AWS resources used in examples.
+
+    Args:
+        sqs_client: boto3 SQS client
+        sns_client: boto3 SNS client (optional)
+        queue_names: List of SQS queue names to delete
+        topic_names: List of SNS topic names to delete
+    """
+    if queue_names:
+        for queue_name in queue_names:
             try:
-                response = requests.get("http://localhost:4566/health", timeout=2)
-                if response.status_code == 200:
-                    print_colored("🟢 LocalStack started successfully.", "green")
-                    return
-            except Exception:
-                time.sleep(1)
-        print_colored("❌ Failed to start LocalStack.", "red")
-        sys.exit(1)
+                queue_response = sqs_client.get_queue_url(QueueName=queue_name)
+                sqs_client.delete_queue(QueueUrl=queue_response["QueueUrl"])
+                logger.info(f"Deleted SQS queue: {queue_name}")
+            except Exception as e:
+                logger.warning(f"Could not delete SQS queue {queue_name}: {e}")
+
+    if sns_client and topic_names:
+        topics_response = sns_client.list_topics()
+        for topic_name in topic_names:
+            for topic in topics_response.get("Topics", []):
+                if topic_name in topic["TopicArn"]:
+                    try:
+                        sns_client.delete_topic(TopicArn=topic["TopicArn"])
+                        logger.info(f"Deleted SNS topic: {topic_name}")
+                    except Exception as e:
+                        logger.warning(f"Could not delete SNS topic {topic_name}: {e}")
+                    break
 
 
-# Ensure LocalStack is running before setup
-# ensure_localstack_running()
+def setup_localstack_env():
+    """
+    Set up environment variables for LocalStack.
+    """
+    os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
+    os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
+    os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 
-# Create AWS clients
-sqs_client, sns_client = setup_aws_clients()
+
+def setup_logging(level: str = "INFO"):
+    """
+    Set up logging configuration.
+
+    Args:
+        level: Logging level (DEBUG, INFO, WARNING, ERROR)
+    """
+    logging.basicConfig(
+        level=getattr(logging, level.upper()),
+        format="%(asctime)s [%(levelname)8s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        force=True,  # Override any existing configuration
+    )
