@@ -15,10 +15,7 @@ from mcp.shared.message import SessionMessage
 
 from asyncmcp.common.server import ServerTransport
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
-from .utils import (
-    WebhookServerConfig,
-    send_webhook_response,
-)
+from asyncmcp.webhook.utils import WebhookServerConfig, send_webhook_response
 
 logger = logging.getLogger(__name__)
 

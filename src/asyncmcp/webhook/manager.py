@@ -24,14 +24,9 @@ import mcp.types as types
 from mcp.shared.message import SessionMessage
 from mcp.server.lowlevel.server import Server as MCPServer
 
-from .server import WebhookTransport
-from .utils import (
-    WebhookServerConfig,
-    SessionInfo,
-    parse_webhook_request,
-    extract_webhook_url_from_meta,
-    generate_session_id,
-)
+from asyncmcp.webhook.server import WebhookTransport
+from asyncmcp.webhook.utils import WebhookServerConfig, SessionInfo, parse_webhook_request, \
+    extract_webhook_url_from_meta, generate_session_id
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 
 logger = logging.getLogger(__name__)

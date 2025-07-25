@@ -14,10 +14,7 @@ from asyncmcp.sqs.client import sqs_client
 from asyncmcp.sqs.manager import SqsSessionManager
 from asyncmcp.sqs.utils import SqsClientConfig, SqsServerConfig
 
-from .shared_fixtures import (
-    client_server_config,
-    mock_mcp_server,
-)
+from tests.sqs.shared_fixtures import client_server_config, mock_mcp_server
 
 
 class TestSQSIntegrationWithDynamicQueues:

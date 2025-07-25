@@ -17,15 +17,8 @@ from asyncmcp.webhook.utils import (
 )
 from asyncmcp.common.client_state import ClientState
 
-from .shared_fixtures import (
-    mock_http_client,
-    sample_jsonrpc_request,
-    sample_jsonrpc_initialize_request,
-    sample_jsonrpc_response,
-    sample_webhook_request_body,
-    client_transport_config,
-    webhook_url,
-)
+from tests.webhook.shared_fixtures import mock_http_client, sample_jsonrpc_request, sample_jsonrpc_initialize_request, \
+    sample_jsonrpc_response, sample_webhook_request_body, client_transport_config, webhook_url
 
 
 @pytest.fixture

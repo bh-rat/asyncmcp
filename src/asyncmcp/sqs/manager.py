@@ -15,8 +15,8 @@ import mcp.types as types
 from mcp.shared.message import SessionMessage
 from mcp.server.lowlevel.server import Server as MCPServer
 
-from .server import SqsTransport, OutgoingMessageEvent
-from .utils import SqsServerConfig
+from asyncmcp.sqs.server import SqsTransport, OutgoingMessageEvent
+from asyncmcp.sqs.utils import SqsServerConfig
 from asyncmcp.common.aws_queue_utils import to_session_message, delete_sqs_message
 
 logger = logging.getLogger(__name__)

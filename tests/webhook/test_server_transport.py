@@ -7,22 +7,15 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 import anyio
 import httpx
-from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, JSONRPCNotification
+from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCNotification
 from mcp.shared.message import SessionMessage
-from mcp.server.lowlevel import Server
-from asyncmcp.webhook.server import WebhookTransport, webhook_server
+from asyncmcp.webhook.server import WebhookTransport
 from asyncmcp.webhook.manager import WebhookSessionManager
-from asyncmcp.webhook.utils import WebhookServerConfig, send_webhook_response, SessionInfo
+from asyncmcp.webhook.utils import send_webhook_response, SessionInfo
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 
-from .shared_fixtures import (
-    mock_http_client,
-    sample_jsonrpc_request,
-    sample_jsonrpc_initialize_request,
-    sample_jsonrpc_response,
-    server_transport_config,
-    mock_mcp_server,
-)
+from tests.webhook.shared_fixtures import mock_http_client, sample_jsonrpc_request, sample_jsonrpc_initialize_request, \
+    sample_jsonrpc_response, server_transport_config, mock_mcp_server
 
 
 @pytest.fixture

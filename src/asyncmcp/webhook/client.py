@@ -27,12 +27,7 @@ import mcp.types as types
 from mcp.shared.message import SessionMessage
 
 from asyncmcp.common.client_state import ClientState
-from .utils import (
-    WebhookClientConfig,
-    create_http_headers,
-    parse_webhook_request,
-    extract_webhook_url_from_meta,
-)
+from asyncmcp.webhook.utils import WebhookClientConfig, create_http_headers, parse_webhook_request
 
 logger = logging.getLogger(__name__)
 

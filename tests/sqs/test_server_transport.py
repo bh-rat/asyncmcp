@@ -13,16 +13,9 @@ from asyncmcp.sqs.server import SqsTransport
 from asyncmcp.sqs.manager import SqsSessionManager
 from asyncmcp.common.aws_queue_utils import to_session_message
 
-from .shared_fixtures import (
-    mock_sqs_client,
-    sample_sqs_message,
-    sample_initialize_sqs_message,
-    sample_jsonrpc_request,
-    sample_jsonrpc_notification,
-    sample_jsonrpc_response,
-    server_transport_config,
-    mock_mcp_server,
-)
+from tests.sqs.shared_fixtures import mock_sqs_client, sample_sqs_message, sample_initialize_sqs_message, \
+    sample_jsonrpc_request, sample_jsonrpc_notification, sample_jsonrpc_response, server_transport_config, \
+    mock_mcp_server
 
 
 @pytest.fixture

@@ -20,10 +20,7 @@ import orjson
 from starlette.requests import Request
 from starlette.datastructures import Headers
 
-from .shared_fixtures import (
-    client_server_config,
-    mock_mcp_server,
-)
+from tests.webhook.shared_fixtures import client_server_config, mock_mcp_server
 
 
 class TestWebhookIntegration:

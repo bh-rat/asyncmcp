@@ -21,13 +21,8 @@ from asyncmcp.webhook.utils import (
     generate_session_id,
 )
 
-from .shared_fixtures import (
-    sample_jsonrpc_request,
-    sample_jsonrpc_initialize_request,
-    sample_jsonrpc_response,
-    sample_jsonrpc_notification,
-    sample_webhook_request_body,
-)
+from tests.webhook.shared_fixtures import sample_jsonrpc_request, sample_jsonrpc_initialize_request, \
+    sample_jsonrpc_response, sample_jsonrpc_notification, sample_webhook_request_body
 
 
 class TestWebhookServerConfig:

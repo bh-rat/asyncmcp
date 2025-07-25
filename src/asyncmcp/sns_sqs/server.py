@@ -6,7 +6,7 @@ import logging
 from typing import Any, Optional
 from contextlib import asynccontextmanager
 
-from anyio import to_thread
+import anyio.to_thread
 from anyio.streams.memory import MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
 
@@ -64,7 +64,7 @@ class SnsSqsTransport(ServerTransport):
                 session_message, self.config, self.session_id
             )
 
-            await to_thread.run_sync(
+            await anyio.to_thread.run_sync(
                 lambda: self.sns_client.publish(
                     TopicArn=self.client_topic_arn, Message=json_message, MessageAttributes=message_attributes
                 )
