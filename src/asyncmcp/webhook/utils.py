@@ -18,17 +18,30 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class WebhookTransportConfig:
-    """Configuration for webhook transport."""
+class WebhookServerConfig:
+    """Configuration for webhook server transport."""
 
-    server_url: str = "http://0.0.0.0:8000/mcp/request"
-    webhook_url: str = "http://0.0.0.0:8001/webhook/response"
-
+    # HTTP client configuration for sending webhooks to clients
     timeout_seconds: float = 30.0
-    max_retries: int = 0
+    max_retries: int = 0  # No retries as specified
 
+    # Transport configuration
+    transport_timeout_seconds: Optional[float] = None
+
+
+@dataclass
+class WebhookClientConfig:
+    """Configuration for webhook client transport."""
+
+    # Server URL where the client sends requests
+    server_url: str = "http://localhost:8000/mcp/request"
+
+    # HTTP client configuration
+    timeout_seconds: float = 30.0
+    max_retries: int = 0  # No retries as specified
+
+    # Transport configuration
     client_id: Optional[str] = None
-    poll_interval_seconds: float = 1.0
     transport_timeout_seconds: Optional[float] = None
 
     def __post_init__(self):

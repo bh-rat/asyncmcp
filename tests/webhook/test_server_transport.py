@@ -12,7 +12,7 @@ from mcp.shared.message import SessionMessage
 from mcp.server.lowlevel import Server
 from asyncmcp.webhook.server import WebhookTransport, webhook_server
 from asyncmcp.webhook.manager import WebhookSessionManager
-from asyncmcp.webhook.utils import WebhookTransportConfig, send_webhook_response, SessionInfo
+from asyncmcp.webhook.utils import WebhookServerConfig, send_webhook_response, SessionInfo
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 
 from .shared_fixtures import (

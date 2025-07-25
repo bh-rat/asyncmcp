@@ -10,7 +10,11 @@ import httpx
 from mcp.shared.message import SessionMessage
 
 from asyncmcp.webhook.client import webhook_client, WebhookClient
-from asyncmcp.webhook.utils import WebhookTransportConfig, create_http_headers, parse_webhook_request
+from asyncmcp.webhook.utils import (
+    WebhookClientConfig,
+    create_http_headers,
+    parse_webhook_request,
+)
 from asyncmcp.common.client_state import ClientState
 
 from .shared_fixtures import (
@@ -20,6 +24,7 @@ from .shared_fixtures import (
     sample_jsonrpc_response,
     sample_webhook_request_body,
     client_transport_config,
+    webhook_url,
 )
 
 
@@ -33,23 +38,23 @@ class TestWebhookClient:
     """Test the WebhookClient class."""
 
     @pytest.mark.anyio
-    async def test_webhook_client_init(self, transport_config):
+    async def test_webhook_client_init(self, transport_config, webhook_url):
         """Test WebhookClient initialization."""
         state = ClientState(client_id="test-client", session_id=None)
-        client = WebhookClient(transport_config, state)
+        client = WebhookClient(transport_config, state, webhook_url)
 
         assert client.config == transport_config
         assert client.state == state
-        assert client.webhook_url == "http://localhost:8001/webhook/response"
+        assert client.webhook_url == webhook_url
         assert client.server_url == "http://localhost:8000/mcp/request"
         assert client.http_client is None
         assert client.webhook_server is None
 
     @pytest.mark.anyio
-    async def test_handle_webhook_response_success(self, transport_config, sample_webhook_request_body):
+    async def test_handle_webhook_response_success(self, transport_config, sample_webhook_request_body, webhook_url):
         """Test successful webhook response handling."""
         state = ClientState(client_id="test-client", session_id=None)
-        client = WebhookClient(transport_config, state)
+        client = WebhookClient(transport_config, state, webhook_url)
 
         # Don't set up streams to avoid hanging
         client.read_stream_writer = None
@@ -65,10 +70,10 @@ class TestWebhookClient:
         assert state.session_id == "test-session-123"
 
     @pytest.mark.anyio
-    async def test_handle_webhook_response_error(self, transport_config):
+    async def test_handle_webhook_response_error(self, transport_config, webhook_url):
         """Test webhook response handling with error."""
         state = ClientState(client_id="test-client", session_id=None)
-        client = WebhookClient(transport_config, state)
+        client = WebhookClient(transport_config, state, webhook_url)
 
         # Don't set up streams to avoid hanging
         client.read_stream_writer = None
@@ -83,10 +88,10 @@ class TestWebhookClient:
         assert response.status_code == 400
 
     @pytest.mark.anyio
-    async def test_send_request_regular(self, transport_config, sample_jsonrpc_request):
+    async def test_send_request_regular(self, transport_config, sample_jsonrpc_request, webhook_url):
         """Test sending regular request."""
         state = ClientState(client_id="test-client", session_id="test-session")
-        client = WebhookClient(transport_config, state)
+        client = WebhookClient(transport_config, state, webhook_url)
 
         # Mock HTTP client
         mock_response = MagicMock()
@@ -108,10 +113,10 @@ class TestWebhookClient:
         assert "content" in call_args.kwargs
 
     @pytest.mark.anyio
-    async def test_send_request_initialize(self, transport_config, sample_jsonrpc_initialize_request):
+    async def test_send_request_initialize(self, transport_config, sample_jsonrpc_initialize_request, webhook_url):
         """Test sending initialize request with webhook URL injection."""
         state = ClientState(client_id="test-client", session_id=None)
-        client = WebhookClient(transport_config, state)
+        client = WebhookClient(transport_config, state, webhook_url)
 
         # Mock HTTP client
         mock_response = MagicMock()
@@ -135,10 +140,10 @@ class TestWebhookClient:
         assert parsed_body["params"]["_meta"]["webhookUrl"] == "http://localhost:8001/webhook/response"
 
     @pytest.mark.anyio
-    async def test_send_request_http_error(self, transport_config, sample_jsonrpc_request):
+    async def test_send_request_http_error(self, transport_config, sample_jsonrpc_request, webhook_url):
         """Test handling HTTP error in send_request."""
         state = ClientState(client_id="test-client", session_id="test-session")
-        client = WebhookClient(transport_config, state)
+        client = WebhookClient(transport_config, state, webhook_url)
 
         # Don't set up streams to avoid hanging
         client.read_stream_writer = None
@@ -155,10 +160,10 @@ class TestWebhookClient:
         mock_http_client.post.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_stop(self, transport_config):
+    async def test_stop(self, transport_config, webhook_url):
         """Test client stop functionality."""
         state = ClientState(client_id="test-client", session_id=None)
-        client = WebhookClient(transport_config, state)
+        client = WebhookClient(transport_config, state, webhook_url)
 
         # Mock HTTP client and server
         mock_http_client = AsyncMock()
@@ -250,30 +255,3 @@ class TestClientState:
         # Should not overwrite existing session ID
         await state.set_session_id_if_none("another-session-id")
         assert state.session_id == "new-session-id"
-
-
-class TestWebhookTransportConfig:
-    """Test webhook transport configuration."""
-
-    def test_config_defaults(self):
-        """Test default configuration values."""
-        config = WebhookTransportConfig()
-
-        assert config.server_url == "http://0.0.0.0:8000/mcp/request"
-        assert config.webhook_url == "http://0.0.0.0:8001/webhook/response"
-        assert config.timeout_seconds == 30.0
-        assert config.client_id is not None  # Auto-generated
-
-    def test_config_custom_values(self):
-        """Test configuration with custom values."""
-        config = WebhookTransportConfig(
-            server_url="http://localhost:9000/mcp/request",
-            webhook_url="http://localhost:9001/webhook/response",
-            timeout_seconds=60.0,
-            client_id="custom-client",
-        )
-
-        assert config.server_url == "http://localhost:9000/mcp/request"
-        assert config.webhook_url == "http://localhost:9001/webhook/response"
-        assert config.timeout_seconds == 60.0
-        assert config.client_id == "custom-client"

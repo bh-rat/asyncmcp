@@ -9,7 +9,8 @@ from .client import webhook_client
 from .server import WebhookTransport, webhook_server
 from .manager import WebhookSessionManager
 from .utils import (
-    WebhookTransportConfig,
+    WebhookServerConfig,
+    WebhookClientConfig,
     SessionInfo,
     create_http_headers,
     parse_webhook_request,
@@ -26,8 +27,10 @@ __all__ = [
     "webhook_server",
     # Manager
     "WebhookSessionManager",
+    # Configuration
+    "WebhookServerConfig",
+    "WebhookClientConfig",
     # Utilities
-    "WebhookTransportConfig",
     "SessionInfo",
     "create_http_headers",
     "parse_webhook_request",

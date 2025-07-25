@@ -11,7 +11,7 @@ from mcp.server.lowlevel import Server
 from mcp.shared._httpx_utils import create_mcp_http_client
 
 from asyncmcp.webhook.manager import WebhookSessionManager
-from asyncmcp.webhook.utils import WebhookTransportConfig
+from asyncmcp.webhook.utils import WebhookServerConfig
 from shared import create_server_transport_config, print_colored, TRANSPORT_WEBHOOK
 
 
@@ -82,16 +82,20 @@ def main(server_port, webhook_port, stateless) -> int:
         # Configure webhook transport
         print_colored("🔧 Configuring webhook transport", "yellow")
 
-        config = WebhookTransportConfig(
-            server_url=f"http://localhost:{server_port}/mcp/request",
-            webhook_url=f"http://localhost:{webhook_port}/webhook/response",
-        )
+        config = WebhookServerConfig()
 
         # Create session manager
-        session_manager = WebhookSessionManager(app, config, stateless=stateless)
+        session_manager = WebhookSessionManager(
+            app,
+            config,
+            server_host="localhost",
+            server_port=server_port,
+            server_path="/mcp/request",
+            stateless=stateless,
+        )
 
         print_colored("📡 Starting webhook session manager", "green")
-        print_colored(f"🔗 Server listening on {config.server_url}", "blue")
+        print_colored(f"🔗 Server listening on http://localhost:{server_port}/mcp/request", "blue")
 
         async with session_manager.run():
             # Keep the server running

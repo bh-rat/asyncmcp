@@ -26,7 +26,7 @@ from mcp.server.lowlevel.server import Server as MCPServer
 
 from .server import WebhookTransport
 from .utils import (
-    WebhookTransportConfig,
+    WebhookServerConfig,
     SessionInfo,
     parse_webhook_request,
     extract_webhook_url_from_meta,
@@ -40,9 +40,20 @@ logger = logging.getLogger(__name__)
 class WebhookSessionManager:
     """Manages multiple webhook sessions and HTTP endpoints."""
 
-    def __init__(self, app: MCPServer, config: WebhookTransportConfig, stateless: bool = False):
+    def __init__(
+        self,
+        app: MCPServer,
+        config: WebhookServerConfig,
+        server_host: str = "0.0.0.0",
+        server_port: int = 8000,
+        server_path: str = "/mcp/request",
+        stateless: bool = False,
+    ):
         self.app = app
         self.config = config
+        self.server_host = server_host
+        self.server_port = server_port
+        self.server_path = server_path
         self.stateless = stateless
 
         # Session management
@@ -347,27 +358,16 @@ class WebhookSessionManager:
 
     async def _start_http_server(self) -> None:
         """Start the HTTP server to receive client requests."""
-        # Extract path from server URL for the route
-        from urllib.parse import urlparse
-        parsed_url = urlparse(self.config.server_url)
-        server_path = parsed_url.path
-        
         routes = [
-            Route(server_path, self.handle_client_request, methods=["POST"]),
+            Route(self.server_path, self.handle_client_request, methods=["POST"]),
         ]
 
         app = Starlette(routes=routes)
 
-        # Extract host and port from server URL
-        from urllib.parse import urlparse
-        parsed_url = urlparse(self.config.server_url)
-        server_host = parsed_url.hostname or "0.0.0.0"
-        server_port = parsed_url.port or 8000
-        
         config = uvicorn.Config(
             app=app,
-            host=server_host,
-            port=server_port,
+            host=self.server_host,
+            port=self.server_port,
             log_level="warning",
             access_log=False,  # Disable access logs to reduce noise
         )

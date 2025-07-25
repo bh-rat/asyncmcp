@@ -11,7 +11,8 @@ import mcp.types as types
 from mcp.shared.message import SessionMessage
 
 from asyncmcp.webhook.utils import (
-    WebhookTransportConfig,
+    WebhookServerConfig,
+    WebhookClientConfig,
     SessionInfo,
     create_http_headers,
     parse_webhook_request,
@@ -29,32 +30,58 @@ from .shared_fixtures import (
 )
 
 
-class TestWebhookTransportConfig:
-    """Test WebhookTransportConfig class."""
+class TestWebhookServerConfig:
+    """Test WebhookServerConfig class."""
 
     def test_default_config(self):
         """Test default configuration values."""
-        config = WebhookTransportConfig()
+        config = WebhookServerConfig()
 
-        assert config.server_url == "http://0.0.0.0:8000/mcp/request"
-        assert config.webhook_url == "http://0.0.0.0:8001/webhook/response"
         assert config.timeout_seconds == 30.0
         assert config.max_retries == 0
-        assert config.client_id is not None  # Auto-generated
+        assert config.transport_timeout_seconds is None
 
     def test_custom_config(self):
         """Test custom configuration values."""
-        config = WebhookTransportConfig(
-            server_url="http://localhost:9000/mcp/request",
-            webhook_url="http://localhost:9001/webhook/response",
+        config = WebhookServerConfig(
             timeout_seconds=60.0,
+            max_retries=3,
+            transport_timeout_seconds=120.0,
+        )
+
+        assert config.timeout_seconds == 60.0
+        assert config.max_retries == 3
+        assert config.transport_timeout_seconds == 120.0
+
+
+class TestWebhookClientConfig:
+    """Test WebhookClientConfig class."""
+
+    def test_default_config(self):
+        """Test default configuration values."""
+        config = WebhookClientConfig()
+
+        assert config.server_url == "http://localhost:8000/mcp/request"
+        assert config.timeout_seconds == 30.0
+        assert config.max_retries == 0
+        assert config.client_id is not None  # Auto-generated
+        assert config.transport_timeout_seconds is None
+
+    def test_custom_config(self):
+        """Test custom configuration values."""
+        config = WebhookClientConfig(
+            server_url="http://localhost:9000/mcp/request",
+            timeout_seconds=60.0,
+            max_retries=3,
             client_id="custom-client",
+            transport_timeout_seconds=120.0,
         )
 
         assert config.server_url == "http://localhost:9000/mcp/request"
-        assert config.webhook_url == "http://localhost:9001/webhook/response"
         assert config.timeout_seconds == 60.0
+        assert config.max_retries == 3
         assert config.client_id == "custom-client"
+        assert config.transport_timeout_seconds == 120.0
 
 
 class TestSessionInfo:

@@ -208,15 +208,16 @@ def main(server_port, webhook_port, client_id) -> int:
         print_colored("🔧 Configuring webhook transport", "yellow")
 
         # Create custom webhook config
-        from asyncmcp.webhook.utils import WebhookTransportConfig
+        from asyncmcp.webhook.utils import WebhookClientConfig
 
-        config = WebhookTransportConfig(
+        config = WebhookClientConfig(
             server_url=f"http://localhost:{server_port}/mcp/request",
-            webhook_url=f"http://localhost:{webhook_port}/webhook/response",
             client_id=client_id,
         )
 
-        async with webhook_client(config) as (read_stream, write_stream):
+        webhook_url = f"http://localhost:{webhook_port}/webhook/response"
+
+        async with webhook_client(config, webhook_url) as (read_stream, write_stream):
             print_colored("📡 Client connected to webhook transport", "green")
 
             # Start message handler and interactive CLI concurrently

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, AsyncMock
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, JSONRPCNotification
 from mcp.server.lowlevel import Server
 
-from asyncmcp.webhook.utils import WebhookTransportConfig
+from asyncmcp.webhook.utils import WebhookServerConfig, WebhookClientConfig
 
 
 @pytest.fixture
@@ -84,9 +84,8 @@ def sample_initialize_webhook_request():
 @pytest.fixture
 def client_transport_config():
     """Test configuration for webhook client transport."""
-    return WebhookTransportConfig(
+    return WebhookClientConfig(
         server_url="http://localhost:8000/mcp/request",
-        webhook_url="http://localhost:8001/webhook/response",
         client_id="test-client",
         timeout_seconds=10.0,
     )
@@ -95,11 +94,15 @@ def client_transport_config():
 @pytest.fixture
 def server_transport_config():
     """Test configuration for webhook server transport."""
-    return WebhookTransportConfig(
-        server_url="http://localhost:8000/mcp/request",
-        webhook_url="http://localhost:8001/webhook/response",
+    return WebhookServerConfig(
         timeout_seconds=10.0,
     )
+
+
+@pytest.fixture
+def webhook_url():
+    """Test webhook URL for client responses."""
+    return "http://localhost:8001/webhook/response"
 
 
 @pytest.fixture
@@ -113,16 +116,13 @@ def client_server_config():
     mock_server_http.post = AsyncMock()
     mock_server_http.aclose = AsyncMock()
 
-    client_config = WebhookTransportConfig(
+    client_config = WebhookClientConfig(
         server_url="http://localhost:8000/mcp/request",
-        webhook_url="http://localhost:8001/webhook/response",
         client_id="test-client",
         timeout_seconds=5.0,
     )
 
-    server_config = WebhookTransportConfig(
-        server_url="http://localhost:8000/mcp/request",
-        webhook_url="http://localhost:8001/webhook/response",
+    server_config = WebhookServerConfig(
         timeout_seconds=5.0,
     )
 

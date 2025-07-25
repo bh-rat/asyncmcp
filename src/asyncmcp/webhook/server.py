@@ -16,7 +16,7 @@ from mcp.shared.message import SessionMessage
 from asyncmcp.common.server import ServerTransport
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 from .utils import (
-    WebhookTransportConfig,
+    WebhookServerConfig,
     send_webhook_response,
 )
 
@@ -28,7 +28,7 @@ class WebhookTransport(ServerTransport):
 
     def __init__(
         self,
-        config: WebhookTransportConfig,
+        config: WebhookServerConfig,
         http_client: httpx.AsyncClient,
         session_id: Optional[str],
         webhook_url: Optional[str] = None,
@@ -96,7 +96,7 @@ class WebhookTransport(ServerTransport):
 
 
 @asynccontextmanager
-async def webhook_server(config: WebhookTransportConfig, http_client: httpx.AsyncClient, webhook_url: str):
+async def webhook_server(config: WebhookServerConfig, http_client: httpx.AsyncClient, webhook_url: str):
     """Easy wrapper for initiating a webhook server transport"""
     import uuid
 

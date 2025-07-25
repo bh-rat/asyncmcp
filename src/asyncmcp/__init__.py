@@ -1,10 +1,4 @@
 """
-<<<<<<< HEAD
-Async MCP - Async Transport layer for MCP
-
-This package provides async transport layer implementations for MCP (Model Context Protocol)
-clients and servers, with support for AWS SQS and SNS as transport mechanisms and webhook transport.
-=======
 AsyncMCP: Async transports for Model Context Protocol
 """
 
@@ -12,7 +6,7 @@ from importlib.metadata import version, PackageNotFoundError
 
 from asyncmcp.sqs.client import sqs_client
 from asyncmcp.sqs.server import sqs_server
-from asyncmcp.webhook.utils import WebhookTransportConfig
+from asyncmcp.webhook.utils import WebhookServerConfig, WebhookClientConfig
 from asyncmcp.webhook.client import webhook_client
 from asyncmcp.webhook.server import webhook_server
 from asyncmcp.sqs.server import SqsTransport, sqs_server
@@ -34,7 +28,8 @@ __all__ = [
     # SQS Transport
     "sqs_client",
     "sqs_server",
-    "WebhookTransportConfig",
+    "WebhookServerConfig",
+    "WebhookClientConfig",
     "webhook_client",
     "webhook_server",
     "__version__",

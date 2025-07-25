@@ -13,7 +13,7 @@ from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 from asyncmcp.webhook.client import webhook_client
 from asyncmcp.webhook.manager import WebhookSessionManager
-from asyncmcp.webhook.utils import WebhookTransportConfig, SessionInfo
+from asyncmcp.webhook.utils import SessionInfo
 from asyncmcp.webhook.server import WebhookTransport
 from starlette.responses import Response
 import orjson
@@ -174,22 +174,20 @@ class TestWebhookIntegration:
     async def test_multiple_clients_different_webhooks(self, mock_mcp_server):
         """Test multiple clients with different webhook URLs."""
         # Create configs for server and two clients
-        server_config = WebhookTransportConfig(
-            server_url="http://localhost:8000/mcp/request",
-            webhook_url="http://localhost:8001/webhook/response",
+        from asyncmcp.webhook.utils import WebhookServerConfig, WebhookClientConfig
+        
+        server_config = WebhookServerConfig(
             timeout_seconds=5.0,
         )
 
-        client1_config = WebhookTransportConfig(
+        client1_config = WebhookClientConfig(
             server_url="http://localhost:8000/mcp/request",
-            webhook_url="http://localhost:8001/webhook/response",
             client_id="client-1",
             timeout_seconds=5.0,
         )
 
-        client2_config = WebhookTransportConfig(
+        client2_config = WebhookClientConfig(
             server_url="http://localhost:8000/mcp/request",
-            webhook_url="http://localhost:8002/webhook/response",
             client_id="client-2",
             timeout_seconds=5.0,
         )

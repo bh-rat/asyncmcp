@@ -13,6 +13,7 @@ import anyio
 import anyio.lowlevel
 import httpx
 import orjson
+from urllib.parse import urlparse
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from collections.abc import AsyncGenerator
 from starlette.applications import Starlette
@@ -27,7 +28,7 @@ from mcp.shared.message import SessionMessage
 
 from asyncmcp.common.client_state import ClientState
 from .utils import (
-    WebhookTransportConfig,
+    WebhookClientConfig,
     create_http_headers,
     parse_webhook_request,
     extract_webhook_url_from_meta,
@@ -39,10 +40,10 @@ logger = logging.getLogger(__name__)
 class WebhookClient:
     """Webhook client that sends HTTP requests and receives webhook responses."""
 
-    def __init__(self, config: WebhookTransportConfig, state: ClientState):
+    def __init__(self, config: WebhookClientConfig, state: ClientState, webhook_url: str):
         self.config = config
         self.state = state
-        self.webhook_url = config.webhook_url
+        self.webhook_url = webhook_url
         self.server_url = config.server_url
 
         # HTTP client for sending requests
@@ -88,10 +89,9 @@ class WebhookClient:
     async def start_webhook_server(self) -> None:
         """Start the webhook server to receive responses."""
         # Extract path from webhook URL for the route
-        from urllib.parse import urlparse
-        parsed_url = urlparse(self.config.webhook_url)
+        parsed_url = urlparse(self.webhook_url)
         webhook_path = parsed_url.path
-        
+
         routes = [
             Route(webhook_path, self.handle_webhook_response, methods=["POST"]),
         ]
@@ -99,11 +99,9 @@ class WebhookClient:
         app = Starlette(routes=routes)
 
         # Extract host and port from webhook URL
-        from urllib.parse import urlparse
-        parsed_url = urlparse(self.config.webhook_url)
         webhook_host = parsed_url.hostname or "0.0.0.0"
         webhook_port = parsed_url.port or 8001
-        
+
         config = uvicorn.Config(
             app=app,
             host=webhook_host,
@@ -197,7 +195,8 @@ class WebhookClient:
 
 @asynccontextmanager
 async def webhook_client(
-    config: WebhookTransportConfig,
+    config: WebhookClientConfig,
+    webhook_url: str = "http://localhost:8001/webhook/response",
 ) -> AsyncGenerator[
     tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]],
     None,
@@ -205,7 +204,7 @@ async def webhook_client(
     """Create a webhook client transport."""
     state = ClientState(client_id=config.client_id or f"mcp-client-{uuid.uuid4().hex[:8]}", session_id=None)
 
-    client = WebhookClient(config, state)
+    client = WebhookClient(config, state, webhook_url)
 
     # Create streams
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]

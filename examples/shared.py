@@ -15,7 +15,7 @@ from mcp.shared.message import SessionMessage
 import boto3
 
 from asyncmcp.sqs.utils import SqsTransportConfig
-from asyncmcp.webhook.utils import WebhookTransportConfig
+from asyncmcp.webhook.utils import WebhookClientConfig, WebhookServerConfig
 from asyncmcp import SnsSqsServerConfig, SnsSqsClientConfig
 
 # AWS LocalStack configuration
@@ -96,22 +96,35 @@ def print_json(data: Dict[str, Any], title: str = ""):
 def create_client_transport_config(
     client_id: str = "mcp-client", timeout: Optional[float] = None, transport_type: str = TRANSPORT_SNS_SQS
 ) -> Union[
-    Tuple[SnsSqsClientConfig, Any, Any], Tuple[SqsTransportConfig, Any, None], Tuple[WebhookTransportConfig, None, None]
+    Tuple[SnsSqsClientConfig, Any, Any], Tuple[SqsTransportConfig, Any, None], Tuple[WebhookClientConfig, None, None]
 ]:
     """Create a standard client transport configuration"""
     if transport_type == TRANSPORT_WEBHOOK:
-        config = WebhookTransportConfig(
-            server_host="localhost",
-            server_port=8000,
-            webhook_host="localhost",
-            webhook_port=8001,
+        config = WebhookClientConfig(
+            server_url="http://localhost:8000/mcp/request",
             client_id=client_id,
             transport_timeout_seconds=timeout,
         )
         return config, None, None
 
     sqs_client, sns_client = setup_aws_clients()
-    return None, None, None
+    if transport_type == TRANSPORT_SNS_SQS:
+        config = SnsSqsClientConfig(
+            client_id=client_id,
+            sns_topic_arn=RESOURCES["client_request_topic"],
+            sqs_queue_url=RESOURCES["client_response_queue"],
+            transport_timeout_seconds=timeout,
+        )
+        return config, sqs_client, sns_client
+    elif transport_type == TRANSPORT_SQS:
+        config = SqsTransportConfig(
+            client_id=client_id,
+            sqs_queue_url=RESOURCES["client_response_queue"],
+            transport_timeout_seconds=timeout,
+        )
+        return config, sqs_client, None
+    else:
+        raise ValueError(f"Unsupported transport type: {transport_type}")
 
 
 def create_sns_sqs_server_config(
@@ -230,16 +243,11 @@ def create_sns_sqs_server_config(
 def create_server_transport_config(
     transport_type: str = TRANSPORT_SNS_SQS,
 ) -> Union[
-    Tuple[SnsSqsServerConfig, Any, Any], Tuple[SqsTransportConfig, Any, None], Tuple[WebhookTransportConfig, None, None]
+    Tuple[SnsSqsServerConfig, Any, Any], Tuple[SqsTransportConfig, Any, None], Tuple[WebhookServerConfig, None, None]
 ]:
     """Create a standard server transport configuration"""
     if transport_type == TRANSPORT_WEBHOOK:
-        config = WebhookTransportConfig(
-            server_host="localhost",
-            server_port=8000,
-            webhook_host="localhost",
-            webhook_port=8001,
-        )
+        config = WebhookServerConfig()
         return config, None, None
 
     sqs_client, sns_client = setup_aws_clients()
