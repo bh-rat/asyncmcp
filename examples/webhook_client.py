@@ -1,33 +1,75 @@
 #!/usr/bin/env python3
 """
 Sample MCP CLI Client using webhook transport
+
+PRODUCTION INTEGRATION PATTERN:
+================================
+
+For production use, integrate the webhook callback into your existing web application:
+
+1. Create webhook client:
+   config = WebhookClientConfig(server_url="https://your-mcp-server.com/endpoint")
+   async with webhook_client(config, "/webhook/mcp") as (read_stream, write_stream):
+
+2. Get callback function:
+   webhook_callback = await client.get_webhook_callback()
+
+3. Add to your web framework:
+   # FastAPI
+   app.add_route("/webhook/mcp", webhook_callback, methods=["POST"])
+   
+   # Starlette
+   routes = [Route("/webhook/mcp", webhook_callback, methods=["POST"])]
+   
+   # Flask (with async support)
+   app.add_url_rule("/webhook/mcp", methods=["POST"], view_func=webhook_callback)
+
+4. Use full webhook URL in initialize request:
+   params["_meta"]["webhookUrl"] = "https://your-app.com/webhook/mcp"
+
+This example shows a development setup that creates its own HTTP server,
+but in production you would integrate the callback into your existing application.
 """
 
 import sys
 import time
+import logging
 
 import anyio
 import click
 import mcp.types as types
+import uvicorn
 from mcp.shared.message import SessionMessage
-
-from asyncmcp.webhook.client import webhook_client
 from shared import (
+    DEFAULT_INIT_PARAMS,
     print_colored,
     print_json,
-    create_client_transport_config,
     send_mcp_request,
-    DEFAULT_INIT_PARAMS,
-    TRANSPORT_WEBHOOK,
 )
+from starlette.applications import Starlette
+from starlette.routing import Route
+
+from asyncmcp.webhook.client import webhook_client
 
 # Add a global flag to track initialization
 _init_complete = False
 
+# Configure logger
+logger = logging.getLogger(__name__)
 
-async def send_request(write_stream, method: str, params: dict = None):
+
+async def send_request(write_stream, method: str, params: dict | None = None, webhook_url: str | None = None):
     request_id = int(time.time() * 1000) % 100000
-    await send_mcp_request(write_stream, method, params, request_id)
+    
+    # For initialize requests, add webhook URL to _meta field
+    if method == "initialize" and webhook_url:
+        if params is None:
+            params = {}
+        if "_meta" not in params:
+            params["_meta"] = {}
+        params["_meta"]["webhookUrl"] = webhook_url
+    
+    await send_mcp_request(write_stream, method, params or {}, request_id)
 
 
 async def handle_message(session_message: SessionMessage):
@@ -85,7 +127,7 @@ async def send_initialized_notification(write_stream):
     print_colored("📤 Sent initialized notification", "cyan")
 
 
-async def process_command(command: str, write_stream):
+async def process_command(command: str, write_stream, webhook_url: str):
     """Process a single command"""
     parts = command.split()
 
@@ -101,7 +143,11 @@ async def process_command(command: str, write_stream):
         global _init_complete
         _init_complete = False  # Reset flag
 
-        await send_request(write_stream, "initialize", DEFAULT_INIT_PARAMS)
+        # Create initialize params with webhook URL in _meta field
+        init_params = DEFAULT_INIT_PARAMS.copy()
+        init_params["_meta"] = {"webhookUrl": webhook_url}
+        
+        await send_request(write_stream, "initialize", init_params, webhook_url)
 
         # Wait for initialize response with timeout
         print_colored("⏳ Waiting for initialize response...", "yellow")
@@ -154,7 +200,7 @@ async def message_handler(read_stream):
             await handle_message(message)
 
 
-async def interactive_cli(write_stream):
+async def interactive_cli(write_stream, webhook_url: str):
     """Interactive CLI loop"""
     print_colored("Quick Interactive MCP Client", "blue")
     print_colored("Commands: init, tools, call <tool_name> <params...>, quit", "blue")
@@ -169,7 +215,7 @@ async def interactive_cli(write_stream):
                 continue
 
             # Process the command
-            result = await process_command(command, write_stream)
+            result = await process_command(command, write_stream, webhook_url)
             if result is False:
                 break
 
@@ -215,15 +261,51 @@ def main(server_port, webhook_port, client_id) -> int:
             client_id=client_id,
         )
 
-        webhook_url = f"http://localhost:{webhook_port}/webhook/response"
+        webhook_path = "/webhook/response"
+        webhook_url = f"http://localhost:{webhook_port}{webhook_path}"
 
-        async with webhook_client(config, webhook_url) as (read_stream, write_stream):
+        # Create a simple development setup that shows the production pattern
+        # In production, you would integrate the callback into your existing web app
+        async with webhook_client(config, webhook_path) as (read_stream, write_stream, client):
             print_colored("📡 Client connected to webhook transport", "green")
 
-            # Start message handler and interactive CLI concurrently
+            #  Production Integration Pattern:
+            #   1. Create your web app (FastAPI, Starlette, Flask, etc.)
+            #   2. Get webhook client: async with webhook_client(...) as (read, write, client):
+            #   3. Get callback: webhook_callback = await client.get_webhook_callback()
+            #   4. Add to routes: app.add_route('/webhook', webhook_callback, methods=['POST'])
+
+            # Get webhook callback for external integration (now much simpler!)
+            webhook_callback = await client.get_webhook_callback()
+
+            routes = [
+                Route(webhook_path, webhook_callback, methods=["POST"]),
+            ]
+            server_app = Starlette(routes=routes)
+            
+            server_config = uvicorn.Config(
+                app=server_app,
+                host="localhost",
+                port=webhook_port,
+                log_level="warning",
+                access_log=False,
+            )
+            server = uvicorn.Server(server_config)
+            
+            # Create development server
+            
+            # Start all components concurrently
             async with anyio.create_task_group() as tg:
+                tg.start_soon(server.serve)
                 tg.start_soon(message_handler, read_stream)
-                tg.start_soon(interactive_cli, write_stream)
+                async def start_cli():
+                    await interactive_cli(write_stream, webhook_url)
+                tg.start_soon(start_cli)
+                
+                await anyio.sleep(0.1)  # Wait for server to start
+                print_colored(
+                    f"🔗 Development server listening on http://localhost:{webhook_port}{webhook_path}", "blue"
+                )
 
     anyio.run(arun)
     return 0

@@ -63,29 +63,27 @@ class TestWebhookIntegration:
                 async with anyio.create_task_group() as tg:
 
                     async def run_mock_client():
-                        # Mock the webhook client's HTTP operations
-                        with patch("asyncmcp.webhook.client.WebhookClient.start_webhook_server") as mock_start_server:
-                            mock_start_server.return_value = AsyncMock()
-
-                            async with webhook_client(client_config) as (read_stream, write_stream):
-                                # Send initialize request
-                                init_request = JSONRPCMessage(
-                                    root=JSONRPCRequest(
-                                        jsonrpc="2.0",
-                                        id=1,
-                                        method="initialize",
-                                        params={
-                                            "protocolVersion": "2024-11-05",
-                                            "capabilities": {},
-                                            "clientInfo": {"name": "test-client", "version": "1.0"},
-                                            "_meta": {"webhookUrl": "http://localhost:8001/webhook/response"},
-                                        },
-                                    )
+                        # Use refactored webhook client (no start_webhook_server to mock)
+                        webhook_path = "/webhook/response"
+                        async with webhook_client(client_config, webhook_path) as (read_stream, write_stream, client):
+                            # Send initialize request
+                            init_request = JSONRPCMessage(
+                                root=JSONRPCRequest(
+                                    jsonrpc="2.0",
+                                    id=1,
+                                    method="initialize",
+                                    params={
+                                        "protocolVersion": "2024-11-05",
+                                        "capabilities": {},
+                                        "clientInfo": {"name": "test-client", "version": "1.0"},
+                                        "_meta": {"webhookUrl": "http://localhost:8001/webhook/response"},
+                                    },
                                 )
-                                await write_stream.send(SessionMessage(init_request))
+                            )
+                            await write_stream.send(SessionMessage(init_request))
 
-                                # Give some time for processing
-                                await anyio.sleep(0.1)
+                            # Give some time for processing
+                            await anyio.sleep(0.1)
 
                     tg.start_soon(run_mock_client)
                     await anyio.sleep(0.2)  # Let the test complete
@@ -141,10 +139,9 @@ class TestWebhookIntegration:
                 async def run_mock_client():
                     await anyio.sleep(0.1)  # Let server start first
 
-                    with patch("asyncmcp.webhook.client.WebhookClient.start_webhook_server") as mock_start_server:
-                        mock_start_server.return_value = AsyncMock()
-
-                        async with webhook_client(client_config) as (read_stream, write_stream):
+                    # Use refactored webhook client (no start_webhook_server to mock)
+                    webhook_path = "/webhook/response"
+                    async with webhook_client(client_config, webhook_path) as (read_stream, write_stream, client):
                             # Send tools/list request
                             tools_request = JSONRPCMessage(
                                 root=JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={})
@@ -222,10 +219,9 @@ class TestWebhookIntegration:
                 async def run_client(client_config, client_id):
                     await anyio.sleep(0.1)  # Stagger clients
 
-                    with patch("asyncmcp.webhook.client.WebhookClient.start_webhook_server") as mock_start_server:
-                        mock_start_server.return_value = AsyncMock()
-
-                        async with webhook_client(client_config) as (read_stream, write_stream):
+                    # Use refactored webhook client (no start_webhook_server to mock)
+                    webhook_path = "/webhook/response"
+                    async with webhook_client(client_config, webhook_path) as (read_stream, write_stream, client):
                             # Send initialize request
                             init_request = JSONRPCMessage(
                                 root=JSONRPCRequest(
@@ -358,18 +354,17 @@ class TestWebhookTransportFailures:
         client_http.post.side_effect = httpx.ConnectError("Connection failed")
 
         with anyio.move_on_after(0.5):
-            with patch("asyncmcp.webhook.client.WebhookClient.start_webhook_server") as mock_start_server:
-                mock_start_server.return_value = AsyncMock()
+            # Use refactored webhook client (no start_webhook_server to mock)
+            webhook_path = "/webhook/response"
+            async with webhook_client(client_config, webhook_path) as (read_stream, write_stream, client):
+                # Send a request that should fail
+                request = JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="test/method", params={}))
+                await write_stream.send(SessionMessage(request))
 
-                async with webhook_client(client_config) as (read_stream, write_stream):
-                    # Send a request that should fail
-                    request = JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="test/method", params={}))
-                    await write_stream.send(SessionMessage(request))
-
-                    # Should receive an exception on the read stream
-                    with anyio.move_on_after(0.2):
-                        message = await read_stream.receive()
-                        assert isinstance(message, Exception)
+                # Should receive an exception on the read stream
+                with anyio.move_on_after(0.2):
+                    message = await read_stream.receive()
+                    assert isinstance(message, Exception)
 
     @pytest.mark.anyio
     async def test_webhook_response_failure(self, client_server_config):
