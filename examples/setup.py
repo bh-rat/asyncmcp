@@ -7,6 +7,7 @@ This script creates the necessary SNS topics and SQS queues for testing.
 
 import json
 import sys
+
 from shared import print_colored, setup_aws_clients
 
 

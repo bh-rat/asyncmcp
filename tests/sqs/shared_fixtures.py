@@ -70,17 +70,19 @@ def sample_initialize_sqs_message():
     return {
         "MessageId": "init-msg-1",
         "ReceiptHandle": "init-handle-1",
-        "Body": json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "test-client", "version": "1.0"},
-                "response_queue_url": "http://localhost:4566/000000000000/client-responses",
-            },
-        }),
+        "Body": json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test-client", "version": "1.0"},
+                    "response_queue_url": "http://localhost:4566/000000000000/client-responses",
+                },
+            }
+        ),
         "MessageAttributes": {"Method": {"DataType": "String", "StringValue": "initialize"}},
     }
 

@@ -10,19 +10,18 @@ import anyio
 import click
 import mcp.types as types
 from mcp.shared.message import SessionMessage
-
-from asyncmcp.sns_sqs.client import sns_sqs_client
-from asyncmcp.sqs.client import sqs_client as pure_sqs_client
 from shared import (
-    get_client_response_queue_url,
-    send_mcp_request,
-    print_colored,
     DEFAULT_INIT_PARAMS,
     TRANSPORT_SNS_SQS,
     TRANSPORT_SQS,
-    print_json,
     create_client_transport_config,
+    print_colored,
+    print_json,
+    send_mcp_request,
 )
+
+from asyncmcp.sns_sqs.client import sns_sqs_client
+from asyncmcp.sqs.client import sqs_client as pure_sqs_client
 
 
 async def send_request(write_stream, method: str, params: dict = None):
@@ -208,10 +207,11 @@ async def interactive_mode(transport_type: str = TRANSPORT_SNS_SQS):
             async with anyio.create_task_group() as tg:
                 tg.start_soon(listen_for_messages, read_stream)
                 tg.start_soon(interactive_loop, write_stream)
-    except* KeyboardInterrupt:
-        print_colored("\n👋 Goodbye!", "yellow")
-    except* Exception as e:
-        print_colored(f"❌ Transport error: {e}", "red")
+    except (KeyboardInterrupt, Exception) as e:
+        if isinstance(e, KeyboardInterrupt):
+            print_colored("\n👋 Goodbye!", "yellow")
+        else:
+            print_colored(f"❌ Transport error: {e}", "red")
 
 
 if __name__ == "__main__":

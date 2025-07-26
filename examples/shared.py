@@ -3,20 +3,20 @@
 Shared utilities for examples.
 """
 
-import os
 import json
-import time
 import logging
+import os
+import time
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from typing import Dict, Any, Optional, List, Tuple, Union
 import anyio
+import boto3
 import mcp.types as types
 from mcp.shared.message import SessionMessage
-import boto3
 
+from asyncmcp import SnsSqsClientConfig, SnsSqsServerConfig
 from asyncmcp.sqs.utils import SqsClientConfig, SqsServerConfig
 from asyncmcp.webhook.utils import WebhookClientConfig, WebhookServerConfig
-from asyncmcp import SnsSqsServerConfig, SnsSqsClientConfig
 
 # AWS LocalStack configuration
 AWS_CONFIG = {

@@ -17,10 +17,10 @@ For production use, integrate the webhook callback into your existing web applic
 3. Add to your web framework:
    # FastAPI
    app.add_route("/webhook/mcp", webhook_callback, methods=["POST"])
-   
+
    # Starlette
    routes = [Route("/webhook/mcp", webhook_callback, methods=["POST"])]
-   
+
    # Flask (with async support)
    app.add_url_rule("/webhook/mcp", methods=["POST"], view_func=webhook_callback)
 
@@ -31,9 +31,9 @@ This example shows a development setup that creates its own HTTP server,
 but in production you would integrate the callback into your existing application.
 """
 
+import logging
 import sys
 import time
-import logging
 
 import anyio
 import click
@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 
 async def send_request(write_stream, method: str, params: dict | None = None, webhook_url: str | None = None):
     request_id = int(time.time() * 1000) % 100000
-    
+
     # For initialize requests, add webhook URL to _meta field
     if method == "initialize" and webhook_url:
         if params is None:
@@ -68,7 +68,7 @@ async def send_request(write_stream, method: str, params: dict | None = None, we
         if "_meta" not in params:
             params["_meta"] = {}
         params["_meta"]["webhookUrl"] = webhook_url
-    
+
     await send_mcp_request(write_stream, method, params or {}, request_id)
 
 
@@ -146,7 +146,7 @@ async def process_command(command: str, write_stream, webhook_url: str):
         # Create initialize params with webhook URL in _meta field
         init_params = DEFAULT_INIT_PARAMS.copy()
         init_params["_meta"] = {"webhookUrl": webhook_url}
-        
+
         await send_request(write_stream, "initialize", init_params, webhook_url)
 
         # Wait for initialize response with timeout
@@ -282,7 +282,7 @@ def main(server_port, webhook_port, client_id) -> int:
                 Route(webhook_path, webhook_callback, methods=["POST"]),
             ]
             server_app = Starlette(routes=routes)
-            
+
             server_config = uvicorn.Config(
                 app=server_app,
                 host="localhost",
@@ -291,17 +291,19 @@ def main(server_port, webhook_port, client_id) -> int:
                 access_log=False,
             )
             server = uvicorn.Server(server_config)
-            
+
             # Create development server
-            
+
             # Start all components concurrently
             async with anyio.create_task_group() as tg:
                 tg.start_soon(server.serve)
                 tg.start_soon(message_handler, read_stream)
+
                 async def start_cli():
                     await interactive_cli(write_stream, webhook_url)
+
                 tg.start_soon(start_cli)
-                
+
                 await anyio.sleep(0.1)  # Wait for server to start
                 print_colored(
                     f"🔗 Development server listening on http://localhost:{webhook_port}{webhook_path}", "blue"
