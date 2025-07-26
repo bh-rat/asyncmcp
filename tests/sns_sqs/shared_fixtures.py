@@ -2,10 +2,12 @@
 Shared fixtures for SNS/SQS tests.
 """
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock
-from asyncmcp.sns_sqs.utils import SnsSqsServerConfig, SnsSqsClientConfig
 from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest
+
+from asyncmcp.sns_sqs.utils import SnsSqsClientConfig, SnsSqsServerConfig
 
 
 @pytest.fixture
@@ -79,3 +81,12 @@ def client_server_config(client_config, server_config, mock_sqs_client, mock_sns
         "client": {"config": client_config, "sqs_client": mock_sqs_client, "sns_client": mock_sns_client},
         "server": {"config": server_config, "sqs_client": mock_sqs_client, "sns_client": mock_sns_client},
     }
+
+
+@pytest.fixture
+def mock_mcp_server():
+    """Mock MCP server for session manager testing."""
+    mock_server = MagicMock()
+    mock_server.run = AsyncMock()
+    mock_server.create_initialization_options = MagicMock(return_value={})
+    return mock_server

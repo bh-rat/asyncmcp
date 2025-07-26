@@ -4,67 +4,113 @@ Webhook client transport implementation.
 The client sends HTTP POST requests to the server and receives responses via webhooks.
 """
 
+import json
 import logging
 import uuid
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Optional
 
 import anyio
 import anyio.lowlevel
 import httpx
 import orjson
-from urllib.parse import urlparse
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from collections.abc import AsyncGenerator
-from starlette.applications import Starlette
+from mcp.shared.message import SessionMessage
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.routing import Route
-import uvicorn
-import json
 
-import mcp.types as types
-from mcp.shared.message import SessionMessage
-
+from asyncmcp.common.base_client import BaseClientTransport
 from asyncmcp.common.client_state import ClientState
-from .utils import (
-    WebhookClientConfig,
-    create_http_headers,
-    parse_webhook_request,
-    extract_webhook_url_from_meta,
-)
+from asyncmcp.webhook.utils import WebhookClientConfig, create_http_headers, parse_webhook_request
 
 logger = logging.getLogger(__name__)
 
 
-class WebhookClient:
-    """Webhook client that sends HTTP requests and receives webhook responses."""
+class WebhookClientTransport(BaseClientTransport):
+    """Webhook-specific client transport with MCP protocol compliance."""
 
-    def __init__(self, config: WebhookClientConfig, state: ClientState, webhook_url: str):
+    def __init__(self, config: WebhookClientConfig):
+        client_id = config.client_id or f"mcp-client-{uuid.uuid4().hex[:8]}"
+        state = ClientState(client_id=client_id, session_id=None)
+        super().__init__(state)
         self.config = config
-        self.state = state
-        self.webhook_url = webhook_url
         self.server_url = config.server_url
 
-        # HTTP client for sending requests
-        self.http_client: Optional[httpx.AsyncClient] = None
+    async def _create_http_headers(self, session_message: SessionMessage) -> dict[str, str]:
+        """Create HTTP headers with protocol version support."""
+        headers = await create_http_headers(
+            session_message, session_id=self.client_state.session_id, client_id=self.client_state.client_id
+        )
 
-        # Webhook server for receiving responses
-        self.webhook_server: Optional[Any] = None
+        # Add protocol version if available
+        if self.protocol_version:
+            headers["X-Protocol-Version"] = self.protocol_version
+
+        return headers
+
+    async def _prepare_initialize_request(self, session_message: SessionMessage) -> str:
+        """Prepare initialize request with webhookUrl validation."""
+        if not self._is_initialization_request(session_message.message):
+            return session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+
+        message_dict = session_message.message.model_dump(by_alias=True, exclude_none=True)
+        params = message_dict.get("params", {})
+        meta = params.get("_meta", {})
+
+        if "params" in message_dict and "_meta" in params and "webhookUrl" in meta:
+            # Webhook URL provided - use as is
+            return json.dumps(message_dict)
+        else:
+            # External app must set the full webhook URL in _meta
+            raise ValueError("webhookUrl is required in initialize request _meta field")
+
+    async def send_message(self, session_message: SessionMessage, http_client: httpx.AsyncClient) -> None:
+        """Send HTTP request to server with proper error handling."""
+        try:
+            json_message = await self._prepare_initialize_request(session_message)
+            headers = await self._create_http_headers(session_message)
+
+            response = await http_client.post(
+                self.server_url,
+                headers=headers,
+                content=json_message,
+            )
+            response.raise_for_status()
+
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to send request to {self.server_url}: {e}")
+            # Don't raise - let the client continue processing other messages
+        except Exception as e:
+            logger.error(f"Unexpected error sending request: {e}")
+            # Don't raise - let the client continue processing other messages
+
+
+class WebhookClient:
+    """Webhook client that sends HTTP requests and provides callback for webhook responses."""
+
+    def __init__(self, config: WebhookClientConfig, webhook_path: str):
+        self.transport = WebhookClientTransport(config)
+        self.webhook_path = webhook_path
+
+        # HTTP client for sending requests
+        self.http_client: httpx.AsyncClient | None = None
 
         # Stream writer for incoming responses
-        self.read_stream_writer: Optional[MemoryObjectSendStream[SessionMessage | Exception]] = None
+        self.read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception] | None = None
+        self.read_stream: MemoryObjectReceiveStream[SessionMessage | Exception] | None = None
+        self.write_stream: MemoryObjectSendStream[SessionMessage] | None = None
 
     async def handle_webhook_response(self, request: Request) -> Response:
-        """Handle incoming webhook response."""
+        """Handle incoming webhook response with MCP protocol compliance."""
         try:
             body = await request.body()
             session_message = await parse_webhook_request(body)
 
-            # Extract session ID from headers and update state
+            # Extract session ID from headers for initialize responses only
             received_session_id = request.headers.get("X-Session-ID")
-            if received_session_id:
-                await self.state.set_session_id_if_none(received_session_id)
+
+            # Use transport's enhanced message handling
+            await self.transport.handle_received_message(session_message.message, received_session_id)
 
             if self.read_stream_writer:
                 await self.read_stream_writer.send(session_message)
@@ -86,82 +132,24 @@ class WebhookClient:
                 status_code=400,
             )
 
-    async def start_webhook_server(self) -> None:
-        """Start the webhook server to receive responses."""
-        # Extract path from webhook URL for the route
-        parsed_url = urlparse(self.webhook_url)
-        webhook_path = parsed_url.path
+    async def get_webhook_callback(self):
+        """Get callback function for external app integration."""
+        return self.handle_webhook_response
 
-        routes = [
-            Route(webhook_path, self.handle_webhook_response, methods=["POST"]),
-        ]
-
-        app = Starlette(routes=routes)
-
-        # Extract host and port from webhook URL
-        webhook_host = parsed_url.hostname or "0.0.0.0"
-        webhook_port = parsed_url.port or 8001
-
-        config = uvicorn.Config(
-            app=app,
-            host=webhook_host,
-            port=webhook_port,
-            log_level="warning",
-            access_log=False,  # Disable access logs to reduce noise
-        )
-
-        self.webhook_server = uvicorn.Server(config)
-        try:
-            await self.webhook_server.serve()
-        except Exception as e:
-            logger.error(f"Webhook server crashed: {e}")
-            # Send error to read stream if available
-            if self.read_stream_writer:
-                try:
-                    await self.read_stream_writer.send(e)
-                except anyio.BrokenResourceError:
-                    pass  # Stream already closed
-            raise
+    def get_streams(
+        self,
+    ) -> tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]:
+        """Get direct access to read/write streams for advanced users."""
+        if not self.read_stream or not self.write_stream:
+            raise RuntimeError("Streams not initialized. Use within webhook_client context manager.")
+        return self.read_stream, self.write_stream
 
     async def send_request(self, session_message: SessionMessage) -> None:
-        """Send HTTP request to server."""
+        """Send HTTP request to server using transport."""
         if not self.http_client:
             return
 
-        try:
-            # For initialize requests, add webhook URL to params
-            message_root = session_message.message.root
-            json_message = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
-
-            if isinstance(message_root, types.JSONRPCRequest) and message_root.method == "initialize":
-                # Add webhook URL to _meta field
-                message_dict = session_message.message.model_dump(by_alias=True, exclude_none=True)
-                if "params" not in message_dict:
-                    message_dict["params"] = {}
-                if "_meta" not in message_dict["params"]:
-                    message_dict["params"]["_meta"] = {}
-                message_dict["params"]["_meta"]["webhookUrl"] = self.webhook_url
-                json_message = json.dumps(message_dict)
-
-            headers = await create_http_headers(
-                session_message, session_id=self.state.session_id, client_id=self.state.client_id
-            )
-
-            response = await self.http_client.post(
-                self.server_url,
-                headers=headers,
-                content=json_message,
-            )
-            response.raise_for_status()
-
-        except httpx.HTTPError as e:
-            logger.error(f"Failed to send request to {self.server_url}: {e}")
-            if self.read_stream_writer:
-                await self.read_stream_writer.send(e)
-        except Exception as e:
-            logger.error(f"Unexpected error sending request: {e}")
-            if self.read_stream_writer:
-                await self.read_stream_writer.send(e)
+        await self.transport.send_message(session_message, self.http_client)
 
     async def stop(self) -> None:
         """Stop the client and clean up resources."""
@@ -173,15 +161,6 @@ class WebhookClient:
                 logger.debug(f"Error closing HTTP client: {e}")
             finally:
                 self.http_client = None
-
-        # Stop webhook server
-        if self.webhook_server:
-            try:
-                self.webhook_server.should_exit = True
-            except Exception as e:
-                logger.debug(f"Error stopping webhook server: {e}")
-            finally:
-                self.webhook_server = None
 
         # Close stream writer if available
         if self.read_stream_writer:
@@ -196,15 +175,26 @@ class WebhookClient:
 @asynccontextmanager
 async def webhook_client(
     config: WebhookClientConfig,
-    webhook_url: str = "http://localhost:8001/webhook/response",
+    webhook_path: str = "/webhook/response",
 ) -> AsyncGenerator[
-    tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]],
+    tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage], WebhookClient],
     None,
 ]:
-    """Create a webhook client transport."""
-    state = ClientState(client_id=config.client_id or f"mcp-client-{uuid.uuid4().hex[:8]}", session_id=None)
+    """Create a webhook client transport.
 
-    client = WebhookClient(config, state, webhook_url)
+    Returns:
+        A tuple of (read_stream, write_stream, client) where:
+        - read_stream: Receives messages from the server
+        - write_stream: Sends messages to the server
+        - client: WebhookClient instance with get_webhook_callback() method
+
+    Example:
+        async with webhook_client(config, "/webhook/mcp") as (read, write, client):
+            # Get callback for your web app
+            callback = await client.get_webhook_callback()
+            # Add to your routes: app.add_route("/webhook/mcp", callback, methods=["POST"])
+    """
+    client = WebhookClient(config, webhook_path)
 
     # Create streams
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
@@ -215,13 +205,10 @@ async def webhook_client(
     write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    # Assign stream writer to client
+    # Assign streams to client
     client.read_stream_writer = read_stream_writer
-
-    async def webhook_reader():
-        """Task that receives webhook responses."""
-        # This is handled by the webhook server itself
-        pass
+    client.read_stream = read_stream
+    client.write_stream = write_stream
 
     async def webhook_writer():
         """Task that sends requests to the server."""
@@ -236,24 +223,18 @@ async def webhook_client(
 
     if config.transport_timeout_seconds is None:
         async with anyio.create_task_group() as tg:
-            tg.start_soon(client.start_webhook_server)
             tg.start_soon(webhook_writer)
             try:
-                # Wait a bit to ensure webhook server is ready
-                await anyio.sleep(0.1)
-                yield read_stream, write_stream
+                yield read_stream, write_stream, client
             finally:
                 tg.cancel_scope.cancel()
                 await client.stop()
     else:
         with anyio.move_on_after(config.transport_timeout_seconds):
             async with anyio.create_task_group() as tg:
-                tg.start_soon(client.start_webhook_server)
                 tg.start_soon(webhook_writer)
                 try:
-                    # Wait a bit to ensure webhook server is ready
-                    await anyio.sleep(0.1)
-                    yield read_stream, write_stream
+                    yield read_stream, write_stream, client
                 finally:
                     tg.cancel_scope.cancel()
                     await client.stop()

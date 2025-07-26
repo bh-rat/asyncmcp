@@ -9,17 +9,17 @@ In this example:
 
 import asyncio
 import sys
-import boto3
 import time
-import anyio
 
-from mcp.server.lowlevel.server import Server
+import anyio
+import boto3
 import mcp.types as types
+from mcp.server.lowlevel.server import Server
+from mcp.shared.message import SessionMessage
 
 from asyncmcp.sqs.client import sqs_client
-from mcp.shared.message import SessionMessage
 from asyncmcp.sqs.manager import SqsSessionManager
-from asyncmcp.sqs.utils import SqsTransportConfig
+from asyncmcp.sqs.utils import SqsClientConfig, SqsServerConfig
 
 # Setup LocalStack AWS clients
 AWS_CONFIG = {
@@ -42,7 +42,7 @@ async def ensure_queues_exist():
 
     for queue_name in queues_to_create:
         try:
-            response = sqs_client.create_queue(QueueName=queue_name)
+            sqs_client.create_queue(QueueName=queue_name)
         except Exception as e:
             if "QueueAlreadyExists" in str(e) or "already exists" in str(e):
                 pass  # Queue already exists, which is fine
@@ -72,7 +72,7 @@ async def run_server():
         return tools
 
     # Configure SQS transport (no write_queue_url needed)
-    config = SqsTransportConfig(
+    config = SqsServerConfig(
         read_queue_url=SERVER_REQUEST_QUEUE,
         max_messages=10,
         wait_time_seconds=5,
@@ -137,11 +137,9 @@ async def run_client():
         print(f"⚠️ Warning: Could not clean queue: {e}")
 
     # Configure client (reads from server's request queue, responds to our queue)
-    config = SqsTransportConfig(
+    config = SqsClientConfig(
         read_queue_url=SERVER_REQUEST_QUEUE,  # Server's request queue
-        max_messages=1,
-        wait_time_seconds=5,
-        poll_interval_seconds=2.0,
+        response_queue_url=CLIENT_RESPONSE_QUEUE,
         client_id="dynamic-example-client",
     )
 
@@ -151,7 +149,7 @@ async def run_client():
     print(f"📤 Sending requests to: {SERVER_REQUEST_QUEUE}")
     print(f"📥 Listening for responses on: {CLIENT_RESPONSE_QUEUE}")
 
-    async with sqs_client(config, sqs_client_instance, CLIENT_RESPONSE_QUEUE) as (read_stream, write_stream):
+    async with sqs_client(config, sqs_client_instance) as (read_stream, write_stream):
         # Send initialize request with our response queue URL
         init_request = types.JSONRPCMessage(
             root=types.JSONRPCRequest(

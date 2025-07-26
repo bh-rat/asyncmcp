@@ -3,19 +3,22 @@ Configuration for SNS/SQS tests.
 """
 
 import pytest
+
 from tests.sns_sqs.shared_fixtures import (
-    mock_sqs_client,
-    mock_sns_client,
-    sample_sqs_message,
-    sample_jsonrpc_request,
-    sample_jsonrpc_notification,
-    server_config,
     client_config,
     client_server_config,
+    mock_mcp_server,
+    mock_sns_client,
+    mock_sqs_client,
+    sample_jsonrpc_notification,
+    sample_jsonrpc_request,
+    sample_sqs_message,
+    server_config,
 )
 
 # Make fixtures available for import
 __all__ = [
+    "mock_mcp_server",
     "mock_sqs_client",
     "mock_sns_client",
     "sample_sqs_message",
@@ -26,8 +29,8 @@ __all__ = [
     "client_server_config",
 ]
 
+from typing import Any, Dict
 from unittest.mock import MagicMock
-from typing import Dict, Any
 
 # anyio backend configuration moved to top-level conftest.py
 

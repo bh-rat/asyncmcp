@@ -5,14 +5,12 @@ Webhook transport utilities and configuration.
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 import httpx
-import orjson
-from pydantic_core import ValidationError
-
 import mcp.types as types
+import orjson
 from mcp.shared.message import SessionMessage
+from pydantic_core import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +24,7 @@ class WebhookServerConfig:
     max_retries: int = 0  # No retries as specified
 
     # Transport configuration
-    transport_timeout_seconds: Optional[float] = None
+    transport_timeout_seconds: float | None = None
 
 
 @dataclass
@@ -41,8 +39,8 @@ class WebhookClientConfig:
     max_retries: int = 0  # No retries as specified
 
     # Transport configuration
-    client_id: Optional[str] = None
-    transport_timeout_seconds: Optional[float] = None
+    client_id: str | None = None
+    transport_timeout_seconds: float | None = None
 
     def __post_init__(self):
         """Initialize client_id if not provided."""
@@ -62,9 +60,9 @@ class SessionInfo:
 
 async def create_http_headers(
     session_message: SessionMessage,
-    session_id: Optional[str] = None,
-    client_id: Optional[str] = None,
-) -> Dict[str, str]:
+    session_id: str | None = None,
+    client_id: str | None = None,
+) -> dict[str, str]:
     """Create HTTP headers for webhook transport."""
     headers = {
         "Content-Type": "application/json",
@@ -102,8 +100,8 @@ async def send_webhook_response(
     http_client: httpx.AsyncClient,
     webhook_url: str,
     session_message: SessionMessage,
-    session_id: Optional[str],
-    client_id: Optional[str],
+    session_id: str | None,
+    client_id: str | None,
 ) -> None:
     """Send a response via webhook."""
     try:
@@ -129,7 +127,7 @@ async def send_webhook_response(
         raise
 
 
-def extract_webhook_url_from_meta(message: types.JSONRPCMessage) -> Optional[str]:
+def extract_webhook_url_from_meta(message: types.JSONRPCMessage) -> str | None:
     """Extract webhook URL from the _meta field of an MCP message."""
     if not isinstance(message.root, types.JSONRPCRequest):
         return None

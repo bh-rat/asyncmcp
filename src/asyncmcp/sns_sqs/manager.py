@@ -9,16 +9,27 @@ from uuid import uuid4
 import anyio
 import anyio.lowlevel
 import anyio.to_thread
+import mcp.types as types
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-
-import mcp.types as types
-from mcp.shared.message import SessionMessage
 from mcp.server.lowlevel.server import Server as MCPServer
+from mcp.shared.message import SessionMessage
 
-from asyncmcp.sns_sqs.server import SnsSqsTransport, OutgoingMessageEvent
+from asyncmcp.common.aws_queue_utils import (
+    delete_sqs_message,
+)
+from asyncmcp.common.utils import (
+    create_internal_error_response,
+    create_session_id_error_response,
+    create_session_not_found_error_response,
+    create_session_terminated_error_response,
+    is_initialize_request,
+    validate_and_parse_message,
+    validate_message_attributes,
+    validate_session_id,
+)
+from asyncmcp.sns_sqs.server import OutgoingMessageEvent, SnsSqsTransport
 from asyncmcp.sns_sqs.utils import SnsSqsServerConfig
-from asyncmcp.common.aws_queue_utils import to_session_message, delete_sqs_message
 
 logger = logging.getLogger(__name__)
 
@@ -64,13 +75,9 @@ class SnsSqsSessionManager:
             self._task_group = tg
             tg.start_soon(self._sqs_message_processor)
             tg.start_soon(self._event_driven_message_sender)
-
-            logger.info("SNS/SQS session manager started")
-
             try:
                 yield
             finally:
-                logger.info("SNS/SQS session manager shutting down")
                 tg.cancel_scope.cancel()
                 await self._shutdown_all_sessions()
 
@@ -89,8 +96,6 @@ class SnsSqsSessionManager:
         1. Creates new session for 'initialize' requests
         2. Routes to existing session based on SessionId
         """
-        logger.info("Starting SNS/SQS message processor")
-
         try:
             while True:
                 # Check for cancellation
@@ -120,55 +125,134 @@ class SnsSqsSessionManager:
                     logger.error(f"Error in SNS/SQS message processor: {e}")
                     await anyio.sleep(min(self.config.poll_interval_seconds, 1.0))
         except anyio.get_cancelled_exc_class():
-            logger.info("SNS/SQS message processor cancelled")
             raise
         except Exception as e:
             logger.error(f"Fatal error in SNS/SQS message processor: {e}")
             raise
 
     async def _process_single_message(self, sqs_message: Dict[str, Any]) -> None:
+        receipt_handle = sqs_message["ReceiptHandle"]
+
         try:
-            session_message = await to_session_message(sqs_message)
-            message_root = session_message.message.root
+            combined_attrs = await self._extract_combined_message_attributes(sqs_message)
 
-            # Extract SessionId from SQS message attributes or SNS notification
-            session_id = None
-            message_attrs = sqs_message.get("MessageAttributes", {})
+            error_response = validate_message_attributes(combined_attrs)
+            if error_response:
+                logger.warning(f"Message validation failed: {error_response.error.message}")
+                await self._send_error_response_if_possible(error_response, combined_attrs)
+                await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, receipt_handle)
+                return
 
-            if "SessionId" in message_attrs:
-                session_id = message_attrs["SessionId"]["StringValue"]
+            # Parse and validate message body
+            body = sqs_message["Body"]
+            actual_message = await self._extract_message_body(body)
+
+            session_message, parse_error = validate_and_parse_message(actual_message)
+            if parse_error:
+                logger.warning(f"Message parsing failed: {parse_error.error.message}")
+                await self._send_error_response_if_possible(parse_error, combined_attrs)
+                await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, receipt_handle)
+                return
+
+            session_id = combined_attrs.get("SessionId", {}).get("StringValue")
+            protocol_version = combined_attrs.get("ProtocolVersion", {}).get("StringValue")
+
+            is_init_request = is_initialize_request(session_message)
+
+            if is_init_request:
+                await self._handle_initialize_request(session_message, session_id, sqs_message, protocol_version)
             else:
-                # Check if this is an SNS notification and extract attributes from there
-                try:
-                    body = json.loads(sqs_message["Body"])
-                    if "MessageAttributes" in body:
-                        sns_attrs = body["MessageAttributes"]
-                        if "SessionId" in sns_attrs:
-                            session_id = sns_attrs["SessionId"]["Value"]
-                except (json.JSONDecodeError, KeyError):
-                    pass
+                # For non-initialize requests, session ID is required
+                if not session_id:
+                    error_response = create_session_id_error_response()
+                    await self._send_error_response_if_possible(error_response, combined_attrs)
+                    await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, receipt_handle)
+                    return
 
-            is_initialize_request = (
-                isinstance(message_root, types.JSONRPCRequest) and message_root.method == "initialize"
-            )
-
-            if is_initialize_request:
-                await self._handle_initialize_request(session_message, session_id, sqs_message)
-            else:
-                if session_id and session_id in self._transport_instances:
+                if session_id in self._transport_instances:
                     transport = self._transport_instances[session_id]
+                    if transport.is_terminated:
+                        error_response = create_session_terminated_error_response(session_id)
+                        await self._send_error_response_if_possible(error_response, combined_attrs)
+                        await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, receipt_handle)
+                        return
+
                     await transport.send_message(session_message)
                 else:
+                    error_response = create_session_not_found_error_response(session_id)
+                    await self._send_error_response_if_possible(error_response, combined_attrs)
                     logger.warning(f"No session found for message with SessionId: {session_id}")
 
-            await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, sqs_message["ReceiptHandle"])
+            await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, receipt_handle)
 
         except Exception as e:
             logger.error(f"Error processing SQS message: {e}")
-            await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, sqs_message["ReceiptHandle"])
+            error_response = create_internal_error_response(f"Internal server error: {str(e)}")
+            try:
+                combined_attrs = await self._extract_combined_message_attributes(sqs_message)
+                await self._send_error_response_if_possible(error_response, combined_attrs)
+            except:
+                pass
+            await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, receipt_handle)
+
+    async def _extract_combined_message_attributes(self, sqs_message: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract message attributes from both SQS and SNS sources."""
+        combined_attrs = {}
+
+        # SQS message attributes
+        message_attrs = sqs_message.get("MessageAttributes", {})
+        for key, value in message_attrs.items():
+            combined_attrs[key] = value
+
+        # SNS notification attributes
+        try:
+            body = json.loads(sqs_message["Body"])
+            if "MessageAttributes" in body:
+                sns_attrs = body["MessageAttributes"]
+                for key, value in sns_attrs.items():
+                    if key not in combined_attrs:  # Don't override SQS attributes
+                        # Convert SNS format to SQS format
+                        combined_attrs[key] = {"StringValue": value.get("Value", "")}
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+        return combined_attrs
+
+    async def _extract_message_body(self, body: Any) -> str:
+        """Extract the actual message body, handling SNS notification format."""
+        if isinstance(body, str):
+            try:
+                parsed_body = json.loads(body)
+                if "Message" in parsed_body and "Type" in parsed_body:
+                    # This is an SNS notification, extract the actual message
+                    return parsed_body["Message"]
+                else:
+                    return body
+            except json.JSONDecodeError:
+                return body
+        else:
+            # If body is already a dict, convert to JSON string first
+            return json.dumps(body)
+
+    async def _send_error_response_if_possible(self, error_response, message_attrs: Dict[str, Any]) -> None:
+        """Send an error response back to the client if we can determine the topic."""
+        try:
+            session_id = message_attrs.get("SessionId", {}).get("StringValue")
+            if session_id and session_id in self._transport_instances:
+                transport = self._transport_instances[session_id]
+                if not transport.is_terminated and transport.client_topic_arn:
+                    await transport.send_error_to_client_topic(error_response)
+                    return
+
+        except Exception as e:
+            logger.debug(f"Could not send error response: {e}")
 
     async def _handle_initialize_request(
-        self, session_message: SessionMessage, session_id: str | None, sqs_message: Dict[str, Any]
+        self,
+        session_message: SessionMessage,
+        session_id: str | None,
+        sqs_message: Dict[str, Any],
+        protocol_version: Optional[str] = None,
     ) -> None:
         if session_id and session_id in self._transport_instances:
             transport = self._transport_instances[session_id]
@@ -190,6 +274,10 @@ class SnsSqsSessionManager:
             if not session_id:
                 session_id = uuid4().hex
 
+            if not validate_session_id(session_id):
+                logger.error(f"Generated invalid session ID: {session_id}")
+                session_id = uuid4().hex
+
             transport = SnsSqsTransport(
                 config=self.config,
                 sqs_client=self.sqs_client,
@@ -205,7 +293,7 @@ class SnsSqsSessionManager:
                 try:
                     async with transport.connect() as (read_stream, write_stream):
                         task_status.started()
-                        logger.info(f"Started SNS/SQS session: {session_id}")
+                        logger.debug(f"Started SNS+SQS session: {session_id} with protocol version: {protocol_version}")
 
                         await self.app.run(
                             read_stream,
@@ -218,7 +306,7 @@ class SnsSqsSessionManager:
                 finally:
                     async with self._session_lock:
                         if session_id in self._transport_instances:
-                            logger.info(f"Cleaning up session: {session_id}")
+                            logger.debug(f"Cleaning up session: {session_id}")
                             del self._transport_instances[session_id]
 
             assert self._task_group is not None
@@ -230,8 +318,6 @@ class SnsSqsSessionManager:
         """
         Background task to send outgoing messages from sessions back to SNS topics.
         """
-        logger.info("Starting SNS message sender")
-
         if not self._outgoing_message_receiver:
             logger.error("No outgoing message receiver configured")
             return
@@ -256,7 +342,6 @@ class SnsSqsSessionManager:
                         logger.error(f"Error processing outgoing message for session {message_event.session_id}: {e}")
 
         except anyio.get_cancelled_exc_class():
-            logger.info("SNS message sender cancelled")
             raise
         except Exception as e:
             logger.error(f"Fatal error in SNS message sender: {e}")
@@ -268,7 +353,6 @@ class SnsSqsSessionManager:
                 transport = self._transport_instances[session_id]
                 await transport.terminate()
                 del self._transport_instances[session_id]
-                logger.info(f"Terminated session: {session_id}")
                 return True
             return False
 

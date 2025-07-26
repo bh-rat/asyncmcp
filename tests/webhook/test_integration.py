@@ -2,28 +2,23 @@
 Comprehensive integration tests for webhook transport.
 """
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import httpx
+import orjson
+import pytest
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
+from starlette.datastructures import Headers
+from starlette.requests import Request
+from starlette.responses import Response
 
 from asyncmcp.webhook.client import webhook_client
 from asyncmcp.webhook.manager import WebhookSessionManager
-from asyncmcp.webhook.utils import SessionInfo
 from asyncmcp.webhook.server import WebhookTransport
-from starlette.responses import Response
-import orjson
-from starlette.requests import Request
-from starlette.datastructures import Headers
-
-from .shared_fixtures import (
-    client_server_config,
-    mock_mcp_server,
-)
+from asyncmcp.webhook.utils import SessionInfo, WebhookClientConfig, WebhookServerConfig
 
 
 class TestWebhookIntegration:
@@ -66,29 +61,27 @@ class TestWebhookIntegration:
                 async with anyio.create_task_group() as tg:
 
                     async def run_mock_client():
-                        # Mock the webhook client's HTTP operations
-                        with patch("asyncmcp.webhook.client.WebhookClient.start_webhook_server") as mock_start_server:
-                            mock_start_server.return_value = AsyncMock()
-
-                            async with webhook_client(client_config) as (read_stream, write_stream):
-                                # Send initialize request
-                                init_request = JSONRPCMessage(
-                                    root=JSONRPCRequest(
-                                        jsonrpc="2.0",
-                                        id=1,
-                                        method="initialize",
-                                        params={
-                                            "protocolVersion": "2024-11-05",
-                                            "capabilities": {},
-                                            "clientInfo": {"name": "test-client", "version": "1.0"},
-                                            "_meta": {"webhookUrl": "http://localhost:8001/webhook/response"},
-                                        },
-                                    )
+                        # Use refactored webhook client (no start_webhook_server to mock)
+                        webhook_path = "/webhook/response"
+                        async with webhook_client(client_config, webhook_path) as (read_stream, write_stream, client):
+                            # Send initialize request
+                            init_request = JSONRPCMessage(
+                                root=JSONRPCRequest(
+                                    jsonrpc="2.0",
+                                    id=1,
+                                    method="initialize",
+                                    params={
+                                        "protocolVersion": "2024-11-05",
+                                        "capabilities": {},
+                                        "clientInfo": {"name": "test-client", "version": "1.0"},
+                                        "_meta": {"webhookUrl": "http://localhost:8001/webhook/response"},
+                                    },
                                 )
-                                await write_stream.send(SessionMessage(init_request))
+                            )
+                            await write_stream.send(SessionMessage(init_request))
 
-                                # Give some time for processing
-                                await anyio.sleep(0.1)
+                            # Give some time for processing
+                            await anyio.sleep(0.1)
 
                     tg.start_soon(run_mock_client)
                     await anyio.sleep(0.2)  # Let the test complete
@@ -144,28 +137,27 @@ class TestWebhookIntegration:
                 async def run_mock_client():
                     await anyio.sleep(0.1)  # Let server start first
 
-                    with patch("asyncmcp.webhook.client.WebhookClient.start_webhook_server") as mock_start_server:
-                        mock_start_server.return_value = AsyncMock()
+                    # Use refactored webhook client (no start_webhook_server to mock)
+                    webhook_path = "/webhook/response"
+                    async with webhook_client(client_config, webhook_path) as (read_stream, write_stream, client):
+                        # Send tools/list request
+                        tools_request = JSONRPCMessage(
+                            root=JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={})
+                        )
+                        await write_stream.send(SessionMessage(tools_request))
 
-                        async with webhook_client(client_config) as (read_stream, write_stream):
-                            # Send tools/list request
-                            tools_request = JSONRPCMessage(
-                                root=JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={})
-                            )
-                            await write_stream.send(SessionMessage(tools_request))
-
-                            # Wait for response (with timeout)
-                            with anyio.move_on_after(0.3):
-                                response = await read_stream.receive()
-                                if isinstance(response, SessionMessage) and hasattr(response.message.root, "result"):
-                                    assert "tools" in response.message.root.result
+                        # Wait for response (with timeout)
+                        with anyio.move_on_after(0.3):
+                            response = await read_stream.receive()
+                            if isinstance(response, SessionMessage) and hasattr(response.message.root, "result"):
+                                assert "tools" in response.message.root.result
 
                 async def run_mock_session_manager():
                     # Mock the session manager components
-                    with patch.object(session_manager, "_start_http_server"):
-                        with patch.object(session_manager, "_event_driven_message_sender"):
-                            async with session_manager.run():
-                                await anyio.sleep(0.5)
+                    # No longer need to patch _start_http_server as it doesn't exist
+                    with patch.object(session_manager, "_event_driven_message_sender"):
+                        async with session_manager.run():
+                            await anyio.sleep(0.5)
 
                 tg.start_soon(run_mock_session_manager)
                 tg.start_soon(run_mock_client)
@@ -174,8 +166,6 @@ class TestWebhookIntegration:
     async def test_multiple_clients_different_webhooks(self, mock_mcp_server):
         """Test multiple clients with different webhook URLs."""
         # Create configs for server and two clients
-        from asyncmcp.webhook.utils import WebhookServerConfig, WebhookClientConfig
-        
         server_config = WebhookServerConfig(
             timeout_seconds=5.0,
         )
@@ -225,37 +215,37 @@ class TestWebhookIntegration:
                 async def run_client(client_config, client_id):
                     await anyio.sleep(0.1)  # Stagger clients
 
-                    with patch("asyncmcp.webhook.client.WebhookClient.start_webhook_server") as mock_start_server:
-                        mock_start_server.return_value = AsyncMock()
-
-                        async with webhook_client(client_config) as (read_stream, write_stream):
-                            # Send initialize request
-                            init_request = JSONRPCMessage(
-                                root=JSONRPCRequest(
-                                    jsonrpc="2.0",
-                                    id=1,
-                                    method="initialize",
-                                    params={
-                                        "protocolVersion": "2024-11-05",
-                                        "capabilities": {},
-                                        "clientInfo": {"name": client_id, "version": "1.0"},
-                                        "_meta": {
-                                            "webhookUrl": f"http://localhost:{8001 if client_id == 'client-1' else 8002}/webhook/response"
-                                        },
+                    # Use refactored webhook client (no start_webhook_server to mock)
+                    webhook_path = "/webhook/response"
+                    async with webhook_client(client_config, webhook_path) as (read_stream, write_stream, client):
+                        # Send initialize request
+                        init_request = JSONRPCMessage(
+                            root=JSONRPCRequest(
+                                jsonrpc="2.0",
+                                id=1,
+                                method="initialize",
+                                params={
+                                    "protocolVersion": "2024-11-05",
+                                    "capabilities": {},
+                                    "clientInfo": {"name": client_id, "version": "1.0"},
+                                    "_meta": {
+                                        "webhookUrl": f"http://localhost:{8001 if client_id == 'client-1' else 8002}"
+                                        f"/webhook/response"
                                     },
-                                )
+                                },
                             )
-                            await write_stream.send(SessionMessage(init_request))
-                            await anyio.sleep(0.1)
+                        )
+                        await write_stream.send(SessionMessage(init_request))
+                        await anyio.sleep(0.1)
 
                 async def run_mock_session_manager():
                     session_manager.http_client = server_http
 
                     with patch.object(session_manager, "_handle_initialize_request", side_effect=mock_handle_init):
-                        with patch.object(session_manager, "_start_http_server"):
-                            with patch.object(session_manager, "_event_driven_message_sender"):
-                                async with session_manager.run():
-                                    await anyio.sleep(0.5)
+                        # No longer need to patch _start_http_server as it doesn't exist
+                        with patch.object(session_manager, "_event_driven_message_sender"):
+                            async with session_manager.run():
+                                await anyio.sleep(0.5)
 
                 tg.start_soon(run_mock_session_manager)
                 tg.start_soon(run_client, client1_config, "client-1")
@@ -317,15 +307,18 @@ class TestWebhookIntegration:
 
         # Mock a malformed HTTP request
         mock_request = MagicMock(spec=Request)
+        mock_request.method = "POST"
         mock_request.body = AsyncMock(return_value=b"invalid json")
         mock_request.headers = Headers({"X-Client-ID": "test-client"})
 
-        response = await session_manager.handle_client_request(mock_request)
+        response = await session_manager._handle_client_request(mock_request)
 
-        # Should return error response
-        assert response.status_code == 500
+        # Should return parse error response (400 Bad Request for malformed JSON)
+        assert response.status_code == 400
         response_body = json.loads(response.body.decode())
+        # Check JSON-RPC error response structure
         assert "error" in response_body
+        assert "message" in response_body["error"]
 
     @pytest.mark.anyio
     async def test_missing_client_id_header(self, client_server_config, mock_mcp_server):
@@ -335,17 +328,241 @@ class TestWebhookIntegration:
 
         # Mock request without client ID
         mock_request = MagicMock(spec=Request)
+        mock_request.method = "POST"
         mock_request.body = AsyncMock(
             return_value=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "test/method", "params": {}}).encode()
         )
         mock_request.headers = Headers({})  # No X-Client-ID header
 
-        response = await session_manager.handle_client_request(mock_request)
+        response = await session_manager._handle_client_request(mock_request)
 
         # Should return error for missing client ID
         assert response.status_code == 400
         response_body = json.loads(response.body.decode())
-        assert "Missing X-Client-ID header" in response_body["error"]
+        # Check JSON-RPC error response structure
+        assert "error" in response_body
+        assert "message" in response_body["error"]
+        assert "Missing X-Client-ID header" in response_body["error"]["message"]
+
+    @pytest.mark.anyio
+    async def test_utf8_decoding_error(self, client_server_config, mock_mcp_server):
+        """Test handling of invalid UTF-8 encoding in request body."""
+        server_config = client_server_config["server"]["config"]
+        session_manager = WebhookSessionManager(app=mock_mcp_server, config=server_config, stateless=False)
+
+        # Mock request with invalid UTF-8 bytes
+        mock_request = MagicMock(spec=Request)
+        mock_request.method = "POST"
+        mock_request.body = AsyncMock(return_value=b"\xff\xfe\x00\x00invalid utf8")
+        mock_request.headers = Headers({"X-Client-ID": "test-client"})
+
+        response = await session_manager._handle_client_request(mock_request)
+
+        # Should return parse error for invalid UTF-8
+        assert response.status_code == 400
+        response_body = json.loads(response.body.decode())
+        assert "error" in response_body
+        assert "Invalid UTF-8 encoding" in response_body["error"]["message"]
+
+    @pytest.mark.anyio
+    async def test_session_termination_check_before_validation(self, client_server_config, mock_mcp_server):
+        """Test that session termination check happens before other validations."""
+        server_config = client_server_config["server"]["config"]
+        session_manager = WebhookSessionManager(app=mock_mcp_server, config=server_config, stateless=False)
+
+        # Create a terminated session
+        session_id = "terminated-session"
+        transport = WebhookTransport(
+            config=server_config,
+            http_client=AsyncMock(),
+            session_id=session_id,
+            webhook_url="http://localhost:8001/webhook/response",
+        )
+        await transport.terminate()
+        session_manager._transport_instances[session_id] = transport
+
+        # Mock request with terminated session ID but missing other headers
+        mock_request = MagicMock(spec=Request)
+        mock_request.method = "POST"
+        mock_request.body = AsyncMock(
+            return_value=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "test/method", "params": {}}).encode()
+        )
+        mock_request.headers = Headers({"X-Session-ID": session_id})  # No X-Client-ID header
+
+        response = await session_manager._handle_client_request(mock_request)
+
+        # Should return session terminated error (404) rather than missing client ID error (400)
+        assert response.status_code == 404
+        response_body = json.loads(response.body.decode())
+        assert "error" in response_body
+        assert "Session has been terminated" in response_body["error"]["message"]
+
+    @pytest.mark.anyio
+    async def test_invalid_protocol_version(self, client_server_config, mock_mcp_server):
+        """Test handling of invalid protocol version."""
+        server_config = client_server_config["server"]["config"]
+        session_manager = WebhookSessionManager(app=mock_mcp_server, config=server_config, stateless=False)
+
+        # Mock request with invalid protocol version
+        mock_request = MagicMock(spec=Request)
+        mock_request.method = "POST"
+        mock_request.body = AsyncMock(
+            return_value=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "test/method", "params": {}}).encode()
+        )
+        mock_request.headers = Headers(
+            {
+                "X-Client-ID": "test-client",
+                "X-Protocol-Version": "1.5",  # Invalid version
+            }
+        )
+
+        response = await session_manager._handle_client_request(mock_request)
+
+        # Should return protocol version error
+        assert response.status_code == 400
+        response_body = json.loads(response.body.decode())
+        assert "error" in response_body
+        assert "Unsupported protocol version: 1.5" in response_body["error"]["message"]
+        assert "Supported versions:" in response_body["error"]["message"]
+
+    @pytest.mark.anyio
+    async def test_invalid_session_id_format(self, client_server_config, mock_mcp_server):
+        """Test handling of invalid session ID format."""
+        server_config = client_server_config["server"]["config"]
+        session_manager = WebhookSessionManager(app=mock_mcp_server, config=server_config, stateless=False)
+
+        # Mock request with invalid session ID format
+        mock_request = MagicMock(spec=Request)
+        mock_request.method = "POST"
+        mock_request.body = AsyncMock(
+            return_value=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "test/method", "params": {}}).encode()
+        )
+        mock_request.headers = Headers(
+            {
+                "X-Client-ID": "test-client",
+                "X-Session-ID": "invalid session id",  # Contains spaces
+            }
+        )
+
+        response = await session_manager._handle_client_request(mock_request)
+
+        # Should return session ID validation error
+        assert response.status_code == 400
+        response_body = json.loads(response.body.decode())
+        assert "error" in response_body
+        assert "Invalid session ID format" in response_body["error"]["message"]
+
+    @pytest.mark.anyio
+    async def test_method_not_allowed(self, client_server_config, mock_mcp_server):
+        """Test handling of unsupported HTTP methods."""
+        server_config = client_server_config["server"]["config"]
+        session_manager = WebhookSessionManager(app=mock_mcp_server, config=server_config, stateless=False)
+
+        # Mock request with unsupported method
+        mock_request = MagicMock(spec=Request)
+        mock_request.method = "GET"  # Only POST and DELETE are supported
+        mock_request.headers = Headers({"X-Client-ID": "test-client"})
+
+        response = await session_manager._handle_client_request(mock_request)
+
+        # Should return method not allowed
+        assert response.status_code == 405
+        assert response.headers["Allow"] == "POST, DELETE"
+        response_body = json.loads(response.body.decode())
+        assert "error" in response_body
+        assert "Method Not Allowed" in response_body["error"]["message"]
+
+    @pytest.mark.anyio
+    async def test_delete_session_termination_missing_session_id(self, client_server_config, mock_mcp_server):
+        """Test DELETE request without session ID header."""
+        server_config = client_server_config["server"]["config"]
+        session_manager = WebhookSessionManager(app=mock_mcp_server, config=server_config, stateless=False)
+
+        # Mock DELETE request without session ID
+        mock_request = MagicMock(spec=Request)
+        mock_request.method = "DELETE"
+        mock_request.headers = Headers({})  # No X-Session-ID header
+
+        response = await session_manager._handle_delete_request(mock_request)
+
+        # Should return error for missing session ID
+        assert response.status_code == 400
+        response_body = json.loads(response.body.decode())
+        assert "error" in response_body
+        assert "Missing X-Session-ID header" in response_body["error"]["message"]
+
+    @pytest.mark.anyio
+    async def test_delete_session_termination_invalid_session_id(self, client_server_config, mock_mcp_server):
+        """Test DELETE request with invalid session ID format."""
+        server_config = client_server_config["server"]["config"]
+        session_manager = WebhookSessionManager(app=mock_mcp_server, config=server_config, stateless=False)
+
+        # Mock DELETE request with invalid session ID
+        mock_request = MagicMock(spec=Request)
+        mock_request.method = "DELETE"
+        mock_request.headers = Headers({"X-Session-ID": "invalid session"})  # Contains space
+
+        response = await session_manager._handle_delete_request(mock_request)
+
+        # Should return session ID validation error
+        assert response.status_code == 400
+        response_body = json.loads(response.body.decode())
+        assert "error" in response_body
+        assert "Invalid session ID format" in response_body["error"]["message"]
+
+    @pytest.mark.anyio
+    async def test_initialize_request_validation_missing_webhook_url(self, client_server_config, mock_mcp_server):
+        """Test initialize request validation when webhook URL is missing."""
+        server_config = client_server_config["server"]["config"]
+        session_manager = WebhookSessionManager(app=mock_mcp_server, config=server_config, stateless=False)
+
+        # Mock initialize request without webhook URL in _meta
+        init_request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "test-client", "version": "1.0"},
+                "_meta": {},  # Missing webhookUrl
+            },
+        }
+
+        mock_request = MagicMock(spec=Request)
+        mock_request.method = "POST"
+        mock_request.body = AsyncMock(return_value=json.dumps(init_request).encode())
+        mock_request.headers = Headers({"X-Client-ID": "test-client"})
+
+        response = await session_manager._handle_client_request(mock_request)
+
+        # Should return error for missing webhook URL
+        assert response.status_code == 400
+        response_body = json.loads(response.body.decode())
+        assert "error" in response_body
+        assert "Missing webhookUrl in _meta field" in response_body["error"]
+
+    @pytest.mark.anyio
+    async def test_initialized_notification_missing_session_id(self, client_server_config, mock_mcp_server):
+        """Test initialized notification without session ID."""
+        server_config = client_server_config["server"]["config"]
+        session_manager = WebhookSessionManager(app=mock_mcp_server, config=server_config, stateless=False)
+
+        # Mock initialized notification without session ID
+        notification = {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
+
+        mock_request = MagicMock(spec=Request)
+        mock_request.method = "POST"
+        mock_request.body = AsyncMock(return_value=json.dumps(notification).encode())
+        mock_request.headers = Headers({"X-Client-ID": "test-client"})  # No X-Session-ID
+
+        response = await session_manager._handle_client_request(mock_request)
+
+        # Should return error for missing session ID
+        assert response.status_code == 400
+        response_body = json.loads(response.body.decode())
+        assert "error" in response_body
+        assert "Missing X-Session-ID header for initialized notification" in response_body["error"]["message"]
 
 
 class TestWebhookTransportFailures:
@@ -361,18 +578,17 @@ class TestWebhookTransportFailures:
         client_http.post.side_effect = httpx.ConnectError("Connection failed")
 
         with anyio.move_on_after(0.5):
-            with patch("asyncmcp.webhook.client.WebhookClient.start_webhook_server") as mock_start_server:
-                mock_start_server.return_value = AsyncMock()
+            # Use refactored webhook client (no start_webhook_server to mock)
+            webhook_path = "/webhook/response"
+            async with webhook_client(client_config, webhook_path) as (read_stream, write_stream, client):
+                # Send a request that should fail
+                request = JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="test/method", params={}))
+                await write_stream.send(SessionMessage(request))
 
-                async with webhook_client(client_config) as (read_stream, write_stream):
-                    # Send a request that should fail
-                    request = JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="test/method", params={}))
-                    await write_stream.send(SessionMessage(request))
-
-                    # Should receive an exception on the read stream
-                    with anyio.move_on_after(0.2):
-                        message = await read_stream.receive()
-                        assert isinstance(message, Exception)
+                # Should receive an exception on the read stream
+                with anyio.move_on_after(0.2):
+                    message = await read_stream.receive()
+                    assert isinstance(message, Exception)
 
     @pytest.mark.anyio
     async def test_webhook_response_failure(self, client_server_config):

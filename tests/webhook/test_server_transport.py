@@ -2,27 +2,18 @@
 Comprehensive tests for webhook server transport module.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import httpx
-from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, JSONRPCNotification
+import pytest
 from mcp.shared.message import SessionMessage
-from mcp.server.lowlevel import Server
-from asyncmcp.webhook.server import WebhookTransport, webhook_server
-from asyncmcp.webhook.manager import WebhookSessionManager
-from asyncmcp.webhook.utils import WebhookServerConfig, send_webhook_response, SessionInfo
-from asyncmcp.common.outgoing_event import OutgoingMessageEvent
+from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest
 
-from .shared_fixtures import (
-    mock_http_client,
-    sample_jsonrpc_request,
-    sample_jsonrpc_initialize_request,
-    sample_jsonrpc_response,
-    server_transport_config,
-    mock_mcp_server,
-)
+from asyncmcp.common.outgoing_event import OutgoingMessageEvent
+from asyncmcp.webhook.manager import WebhookSessionManager
+from asyncmcp.webhook.server import WebhookTransport
+from asyncmcp.webhook.utils import SessionInfo, send_webhook_response
 
 
 @pytest.fixture
@@ -201,15 +192,12 @@ class TestWebhookSessionManager:
         """Test session manager run lifecycle."""
         manager = WebhookSessionManager(app=mock_mcp_server, config=transport_config)
 
-        with patch("asyncmcp.webhook.manager.WebhookSessionManager._start_http_server") as mock_start_server:
-            mock_start_server.return_value = AsyncMock()
+        with anyio.move_on_after(0.1):  # Short timeout for test
+            async with manager.run():
+                assert manager._task_group is not None
 
-            with anyio.move_on_after(0.1):  # Short timeout for test
-                async with manager.run():
-                    assert manager._task_group is not None
-
-            # After context exits, task group should be None
-            assert manager._task_group is None
+        # After context exits, task group should be None
+        assert manager._task_group is None
 
     @pytest.mark.anyio
     async def test_handle_initialize_request(self, transport_config, mock_mcp_server):
@@ -339,6 +327,7 @@ class TestWebhookSessionManager:
         assert session_data["state"] == "initialized"
 
     @pytest.mark.anyio
+    @pytest.mark.skip(reason="removed the limit on sessions for now")
     async def test_session_limit_exceeded(self, transport_config, mock_mcp_server):
         """Test that session creation fails when max sessions exceeded."""
         manager = WebhookSessionManager(app=mock_mcp_server, config=transport_config)

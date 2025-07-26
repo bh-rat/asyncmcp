@@ -5,16 +5,15 @@ import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.shared._httpx_utils import create_mcp_http_client
+from shared import (
+    TRANSPORT_SNS_SQS,
+    TRANSPORT_SQS,
+    create_server_transport_config,
+    print_colored,
+)
 
 from asyncmcp.sns_sqs.manager import SnsSqsSessionManager
 from asyncmcp.sqs.manager import SqsSessionManager
-from shared import (
-    create_sns_sqs_server_config,
-    create_sqs_config,
-    print_colored,
-    TRANSPORT_SNS_SQS,
-    TRANSPORT_SQS,
-)
 
 
 async def fetch_website(
@@ -73,7 +72,7 @@ def main(transport) -> int:
         print_colored(f"🔧 Configuring {transport} transport", "yellow")
 
         if transport == TRANSPORT_SNS_SQS:
-            server_configuration, sqs_client, sns_client = create_sns_sqs_server_config()
+            server_configuration, sqs_client, sns_client = create_server_transport_config(transport_type=transport)
             session_manager = SnsSqsSessionManager(
                 app=app, config=server_configuration, sqs_client=sqs_client, sns_client=sns_client
             )
@@ -95,7 +94,7 @@ def main(transport) -> int:
                 except KeyboardInterrupt:
                     print_colored("🛑 Shutting down server...", "yellow")
         else:
-            server_configuration, sqs_client, sns_client = create_sqs_config()
+            server_configuration, sqs_client, sns_client = create_server_transport_config(transport_type=transport)
             session_manager = SqsSessionManager(app=app, config=server_configuration, sqs_client=sqs_client)
 
             async with session_manager.run():

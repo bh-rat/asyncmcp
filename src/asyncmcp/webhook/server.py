@@ -5,20 +5,18 @@ The server receives HTTP POST requests from clients and sends responses via webh
 """
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
-from typing import Optional
 
 import httpx
 from anyio.streams.memory import MemoryObjectSendStream
-
+from mcp import JSONRPCError
 from mcp.shared.message import SessionMessage
+from mcp.types import JSONRPCMessage
 
-from asyncmcp.common.server import ServerTransport
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
-from .utils import (
-    WebhookServerConfig,
-    send_webhook_response,
-)
+from asyncmcp.common.server import ServerTransport
+from asyncmcp.webhook.utils import WebhookServerConfig, send_webhook_response
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +28,9 @@ class WebhookTransport(ServerTransport):
         self,
         config: WebhookServerConfig,
         http_client: httpx.AsyncClient,
-        session_id: Optional[str],
-        webhook_url: Optional[str] = None,
-        outgoing_message_sender: Optional[MemoryObjectSendStream[OutgoingMessageEvent]] = None,
+        session_id: str | None,
+        webhook_url: str | None = None,
+        outgoing_message_sender: MemoryObjectSendStream[OutgoingMessageEvent] | None = None,
     ):
         super().__init__(config, session_id, outgoing_message_sender)
         self.http_client = http_client
@@ -79,27 +77,34 @@ class WebhookTransport(ServerTransport):
             return
 
         try:
-            # Add logging to track what's being sent to the MCP server
-            message_root = session_message.message.root
-            logger.info(
-                f"[WebhookTransport.send_message] Sending to MCP server: method={getattr(message_root, 'method', 'N/A')} id={getattr(message_root, 'id', 'N/A')} session_id={self.session_id}"
-            )
-
-            # Log the full message for debugging
-            json_message = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
-            logger.info(f"[WebhookTransport.send_message] Full message: {json_message}")
-
             await self._read_stream_writer.send(session_message)
-            logger.info(f"[WebhookTransport.send_message] Successfully sent message to MCP server")
         except Exception as e:
             logger.warning(f"Error sending message to session {self.session_id}: {e}")
+
+    async def send_error_to_client_webhook(self, error_response: JSONRPCError) -> None:
+        """Send an error response to the client's webhook URL."""
+        if self._terminated:
+            logger.debug(f"Session {self.session_id} is terminated, skipping error send")
+            return
+
+        if not self.webhook_url:
+            logger.warning(f"No webhook URL set for session {self.session_id}")
+            return
+
+        try:
+            error_message = JSONRPCMessage(root=error_response)
+            error_session_message = SessionMessage(error_message)
+            await self.send_to_client_webhook(error_session_message)
+            logger.debug(f"Sent error response to webhook: {error_response.error.message}")
+
+        except Exception as e:
+            logger.error(f"Error sending error response to webhook {self.webhook_url}: {e}")
+            # Don't re-raise here to avoid error loops
 
 
 @asynccontextmanager
 async def webhook_server(config: WebhookServerConfig, http_client: httpx.AsyncClient, webhook_url: str):
     """Easy wrapper for initiating a webhook server transport"""
-    import uuid
-
     session_id = str(uuid.uuid4())
     transport = WebhookTransport(config, http_client, session_id, webhook_url=webhook_url)
 

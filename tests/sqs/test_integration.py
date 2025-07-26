@@ -2,22 +2,17 @@
 Comprehensive integration tests for SQS transport with dynamic queue system.
 """
 
-import pytest
-from unittest.mock import MagicMock
 import json
+from unittest.mock import MagicMock
 
 import anyio
+import pytest
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest
 
 from asyncmcp.sqs.client import sqs_client
 from asyncmcp.sqs.manager import SqsSessionManager
-from asyncmcp.sqs.utils import SqsTransportConfig
-
-from .shared_fixtures import (
-    client_server_config,
-    mock_mcp_server,
-)
+from asyncmcp.sqs.utils import SqsClientConfig, SqsServerConfig
 
 
 class TestSQSIntegrationWithDynamicQueues:
@@ -118,7 +113,7 @@ class TestSQSIntegrationWithDynamicQueues:
                 # Start client
                 async def run_client():
                     await anyio.sleep(0.1)  # Let server start first
-                    async with sqs_client(client_config, client_sqs, client_response_queue) as (
+                    async with sqs_client(client_config, client_sqs) as (
                         read_stream,
                         write_stream,
                     ):
@@ -220,7 +215,7 @@ class TestSQSIntegrationWithDynamicQueues:
 
                 async def run_mock_client():
                     await anyio.sleep(0.1)
-                    async with sqs_client(client_config, client_sqs, client_response_queue) as (
+                    async with sqs_client(client_config, client_sqs) as (
                         read_stream,
                         write_stream,
                     ):
@@ -243,23 +238,25 @@ class TestSQSIntegrationWithDynamicQueues:
     async def test_multiple_clients_different_queues(self, mock_mcp_server):
         """Test multiple clients with different response queues."""
         # Create configs for server and two clients
-        server_config = SqsTransportConfig(
+        server_config = SqsServerConfig(
             read_queue_url="http://localhost:4566/000000000000/server-requests",
             max_messages=10,
             wait_time_seconds=1,
             poll_interval_seconds=0.01,
         )
 
-        client1_config = SqsTransportConfig(
+        client1_config = SqsClientConfig(
             read_queue_url="http://localhost:4566/000000000000/server-requests",
+            response_queue_url="http://localhost:4566/000000000000/client1-responses",
             client_id="client-1",
             max_messages=1,
             wait_time_seconds=1,
             poll_interval_seconds=0.01,
         )
 
-        client2_config = SqsTransportConfig(
+        client2_config = SqsClientConfig(
             read_queue_url="http://localhost:4566/000000000000/server-requests",
+            response_queue_url="http://localhost:4566/000000000000/client2-responses",
             client_id="client-2",
             max_messages=1,
             wait_time_seconds=1,
@@ -442,3 +439,258 @@ class TestSQSIntegrationWithDynamicQueues:
                 # Session should be cleaned up after the crash
                 stats = session_manager.get_all_sessions()
                 # Session should be removed from active instances after crashing
+
+
+class TestSQSValidationScenarios:
+    """Test SQS transport validation scenarios."""
+
+    @pytest.mark.anyio
+    async def test_invalid_json_message(self, client_server_config, mock_mcp_server):
+        """Test handling of invalid JSON in SQS message."""
+        server_config = client_server_config["server"]["config"]
+        server_sqs = client_server_config["server"]["sqs_client"]
+
+        # Mock invalid JSON message
+        invalid_message = {
+            "MessageId": "invalid-json-1",
+            "ReceiptHandle": "invalid-handle-1",
+            "Body": '{"jsonrpc": "2.0", "id": 1, "method": "test"',  # Missing closing brace
+            "MessageAttributes": {},
+        }
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"Messages": [invalid_message]}
+            else:
+                return {"Messages": []}
+
+        server_sqs.receive_message.side_effect = receive_side_effect
+        server_sqs.delete_message.return_value = {}
+
+        session_manager = SqsSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
+
+        with anyio.move_on_after(0.5):
+            async with session_manager.run():
+                await anyio.sleep(0.2)
+                # Invalid message should be deleted from queue after parsing failure
+                server_sqs.delete_message.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_invalid_protocol_version_in_attributes(self, client_server_config, mock_mcp_server):
+        """Test handling of invalid protocol version in message attributes."""
+        server_config = client_server_config["server"]["config"]
+        server_sqs = client_server_config["server"]["sqs_client"]
+
+        # Mock message with invalid protocol version
+        message_with_invalid_version = {
+            "MessageId": "invalid-version-1",
+            "ReceiptHandle": "invalid-version-handle-1",
+            "Body": json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}),
+            "MessageAttributes": {
+                "ProtocolVersion": {"DataType": "String", "StringValue": "1.5"},  # Invalid version
+                "SessionId": {"DataType": "String", "StringValue": "test-session-123"},
+            },
+        }
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"Messages": [message_with_invalid_version]}
+            else:
+                return {"Messages": []}
+
+        server_sqs.receive_message.side_effect = receive_side_effect
+        server_sqs.delete_message.return_value = {}
+        server_sqs.send_message.return_value = {"MessageId": "error-response"}
+
+        session_manager = SqsSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
+
+        with anyio.move_on_after(0.5):
+            async with session_manager.run():
+                await anyio.sleep(0.2)
+                # Should send error response and delete invalid message
+                server_sqs.delete_message.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_invalid_session_id_in_attributes(self, client_server_config, mock_mcp_server):
+        """Test handling of invalid session ID in message attributes."""
+        server_config = client_server_config["server"]["config"]
+        server_sqs = client_server_config["server"]["sqs_client"]
+
+        # Mock message with invalid session ID format
+        message_with_invalid_session = {
+            "MessageId": "invalid-session-1",
+            "ReceiptHandle": "invalid-session-handle-1",
+            "Body": json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}),
+            "MessageAttributes": {
+                "ProtocolVersion": {"DataType": "String", "StringValue": "2024-11-05"},
+                "SessionId": {"DataType": "String", "StringValue": "invalid session id"},  # Contains spaces
+            },
+        }
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"Messages": [message_with_invalid_session]}
+            else:
+                return {"Messages": []}
+
+        server_sqs.receive_message.side_effect = receive_side_effect
+        server_sqs.delete_message.return_value = {}
+        server_sqs.send_message.return_value = {"MessageId": "error-response"}
+
+        session_manager = SqsSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
+
+        with anyio.move_on_after(0.5):
+            async with session_manager.run():
+                await anyio.sleep(0.2)
+                # Should send error response and delete invalid message
+                server_sqs.delete_message.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_missing_session_id_for_non_initialize(self, client_server_config, mock_mcp_server):
+        """Test handling of non-initialize request without session ID."""
+        server_config = client_server_config["server"]["config"]
+        server_sqs = client_server_config["server"]["sqs_client"]
+
+        # Mock non-initialize request without session ID
+        message_without_session = {
+            "MessageId": "no-session-1",
+            "ReceiptHandle": "no-session-handle-1",
+            "Body": json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}),
+            "MessageAttributes": {
+                "ProtocolVersion": {"DataType": "String", "StringValue": "2024-11-05"}
+                # Missing SessionId
+            },
+        }
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"Messages": [message_without_session]}
+            else:
+                return {"Messages": []}
+
+        server_sqs.receive_message.side_effect = receive_side_effect
+        server_sqs.delete_message.return_value = {}
+        server_sqs.send_message.return_value = {"MessageId": "error-response"}
+
+        session_manager = SqsSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
+
+        with anyio.move_on_after(0.5):
+            async with session_manager.run():
+                await anyio.sleep(0.2)
+                # Should send error response for missing session ID
+                server_sqs.delete_message.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_session_id_mismatch(self, client_server_config, mock_mcp_server):
+        """Test handling of message with session ID mismatch."""
+        server_config = client_server_config["server"]["config"]
+        server_sqs = client_server_config["server"]["sqs_client"]
+
+        # First create a session with one ID
+        init_message = {
+            "MessageId": "init-1",
+            "ReceiptHandle": "init-handle-1",
+            "Body": json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "test-client", "version": "1.0"},
+                        "response_queue_url": "http://localhost:4566/000000000000/responses",
+                    },
+                }
+            ),
+            "MessageAttributes": {},
+        }
+
+        # Then send a message with different session ID
+        message_with_wrong_session = {
+            "MessageId": "wrong-session-1",
+            "ReceiptHandle": "wrong-session-handle-1",
+            "Body": json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}),
+            "MessageAttributes": {"SessionId": {"DataType": "String", "StringValue": "wrong-session-123"}},
+        }
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"Messages": [init_message]}
+            elif call_count == 2:
+                return {"Messages": [message_with_wrong_session]}
+            else:
+                return {"Messages": []}
+
+        server_sqs.receive_message.side_effect = receive_side_effect
+        server_sqs.delete_message.return_value = {}
+        server_sqs.send_message.return_value = {"MessageId": "response"}
+
+        session_manager = SqsSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
+
+        with anyio.move_on_after(0.5):
+            async with session_manager.run():
+                await anyio.sleep(0.3)
+                # Should handle session mismatch appropriately
+                assert server_sqs.delete_message.call_count >= 2
+
+    @pytest.mark.anyio
+    async def test_sns_notification_unwrapping_validation(self, client_server_config, mock_mcp_server):
+        """Test validation when unwrapping SNS notifications in SQS messages."""
+        server_config = client_server_config["server"]["config"]
+        server_sqs = client_server_config["server"]["sqs_client"]
+
+        # Mock SNS notification with invalid inner message
+        sns_message = {
+            "MessageId": "sns-1",
+            "ReceiptHandle": "sns-handle-1",
+            "Body": json.dumps(
+                {
+                    "Type": "Notification",
+                    "Message": '{"jsonrpc": "1.0", "id": 1, "method": "test"}',  # Invalid jsonrpc version
+                    "TopicArn": "arn:aws:sns:us-east-1:123456789012:test",
+                }
+            ),
+            "MessageAttributes": {},
+        }
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"Messages": [sns_message]}
+            else:
+                return {"Messages": []}
+
+        server_sqs.receive_message.side_effect = receive_side_effect
+        server_sqs.delete_message.return_value = {}
+
+        session_manager = SqsSessionManager(app=mock_mcp_server, config=server_config, sqs_client=server_sqs)
+
+        with anyio.move_on_after(0.5):
+            async with session_manager.run():
+                await anyio.sleep(0.2)
+                # Invalid message should be deleted after validation failure
+                server_sqs.delete_message.assert_called_once()

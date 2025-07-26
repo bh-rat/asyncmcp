@@ -1,11 +1,11 @@
 import logging
-
-from typing import Optional, Any, AsyncGenerator, Union
 from contextlib import asynccontextmanager
+from typing import Any, AsyncGenerator, Optional, Union
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
+
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 from asyncmcp.common.protocols import ServerTransportProtocol
 
@@ -83,8 +83,6 @@ class ServerTransport(ServerTransportProtocol):
         """Terminate this transport session."""
         if self._terminated:
             return
-
-        logger.info(f"Terminating SQS transport session: {self.session_id}")
         self._terminated = True
         await self.cleanup()
 

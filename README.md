@@ -83,8 +83,7 @@ from asyncmcp import SnsSqsServerConfig
 
 # Configure transport
 config = SnsSqsServerConfig(
-    sqs_queue_url="https://sqs.region.amazonaws.com/account/service-queue",
-    sns_topic_arn="arn:aws:sns:region:account:mcp-responses"
+    sqs_queue_url="https://sqs.region.amazonaws.com/account/service-queue"
 )
 
 # Create AWS clients
@@ -106,7 +105,7 @@ from asyncmcp import SnsSqsClientConfig
 # Configure transport
 config = SnsSqsClientConfig(
     sqs_queue_url="https://sqs.region.amazonaws.com/account/client-queue",
-    sns_topic_arn="arn:aws:sns:region:account:mcp-requests"
+    sns_topic_arn="arn:aws:sns:region:account:mcp-responses"
 )
 
 # Create AWS clients
@@ -125,12 +124,11 @@ async def main():
 ```python
 import boto3
 from asyncmcp.sqs.server import sqs_server
-from asyncmcp import SqsTransportConfig
+from asyncmcp import SqsServerConfig
 
 # Configure transport
-config = SqsTransportConfig(
-    request_queue_url="https://sqs.region.amazonaws.com/account/server-requests",
-    response_queue_url="https://sqs.region.amazonaws.com/account/client-responses"
+config = SqsServerConfig(
+    read_queue_url="https://sqs.region.amazonaws.com/account/server-requests"
 )
 
 # Create AWS client
@@ -146,19 +144,19 @@ async def main():
 ```python
 import boto3
 from asyncmcp.sqs.client import sqs_client
-from asyncmcp import SqsTransportConfig
+from asyncmcp import SqsClientConfig
 
 # Configure transport
-config = SqsTransportConfig(
-    request_queue_url="https://sqs.region.amazonaws.com/account/server-requests",
+config = SqsClientConfig(
+    read_queue_url="https://sqs.region.amazonaws.com/account/server-requests",
     response_queue_url="https://sqs.region.amazonaws.com/account/client-responses"
 )
 
 # Create AWS client
-sqs_client = boto3.client('sqs')
+sqs_boto_client = boto3.client('sqs')
 
 async def main():
-    async with sqs_client(config, sqs_client) as (read_stream, write_stream):
+    async with sqs_client(config, sqs_boto_client) as (read_stream, write_stream):
         # Your MCP client logic here
         pass
 ```
@@ -167,16 +165,15 @@ async def main():
 
 #### Server Setup
 ```python
-import httpx
+import anyio
 from asyncmcp.webhook.manager import WebhookSessionManager
-from asyncmcp import WebhookTransportConfig
+from asyncmcp import WebhookServerConfig
 from mcp.server.lowlevel import Server
 
 # Configure transport
-config = WebhookTransportConfig(
-    server_host="localhost",
-    server_port=8000,
-    timeout_seconds=30.0
+config = WebhookServerConfig(
+    timeout_seconds=30.0,
+    max_retries=0
 )
 
 # Create MCP server
@@ -185,30 +182,60 @@ app = Server("my-webhook-server")
 async def main():
     session_manager = WebhookSessionManager(app, config)
     async with session_manager.run():
-        # Server runs and handles HTTP requests at /mcp/request
+        # Server runs as ASGI application - mount with your web framework
+        # Example with uvicorn: uvicorn app:session_manager.asgi_app --host 0.0.0.0 --port 8000
         await anyio.sleep_forever()
 ```
 
 #### Client Setup
 ```python
-from asyncmcp.webhook.client import webhook_client
-from asyncmcp import WebhookTransportConfig
+from asyncmcp import webhook_client, WebhookClientConfig
 
 # Configure transport
-config = WebhookTransportConfig(
-    server_host="localhost",
-    server_port=8000,
-    webhook_host="localhost",
-    webhook_port=8001,
-    timeout_seconds=30.0
+config = WebhookClientConfig(
+    server_url="http://localhost:8000/mcp/request",
+    timeout_seconds=30.0,
+    max_retries=0
 )
 
 async def main():
-    async with webhook_client(config) as (read_stream, write_stream):
+    async with webhook_client(config) as (read_stream, write_stream, client):
         # Your MCP client logic here
-        # Client sends HTTP requests to server and receives responses via webhook
+        # Make sure to start the client's webhook server to receive responses
+        # See examples/webhook_client.py for complete implementation
         pass
 ```
+
+#### Production Deployment
+For production webhook servers, you'll need to:
+
+1. **Deploy with a proper ASGI server**:
+```python
+# app.py
+from asyncmcp.webhook.manager import WebhookSessionManager
+from asyncmcp import WebhookServerConfig
+from mcp.server.lowlevel import Server
+
+config = WebhookServerConfig(timeout_seconds=30.0)
+app = Server("production-server")
+session_manager = WebhookSessionManager(app, config)
+
+# Export ASGI application
+asgi_app = session_manager.asgi_app()
+```
+
+```bash
+# Deploy with uvicorn, gunicorn, or similar
+uvicorn app:asgi_app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+2. **Configure reverse proxy** (nginx, ALB, etc.) to route `/mcp/request` to your server
+
+3. **Set up SSL/TLS** for secure webhook communication
+
+4. **Configure proper timeouts** based on your MCP server response times
+
+5. **Monitor webhook delivery** and implement retry logic in clients if needed
 
 ## Working Examples
 
@@ -278,10 +305,14 @@ We welcome contributions and discussions about async MCP architectures!
 ### Development Setup
 
 ```bash
-git clone https://github.com/bharatgeleda/asyncmcp.git
+git clone https://github.com/bh-rat/asyncmcp.git
 cd asyncmcp
 uv sync
+pre-commit install
 ```
+
+Code formatting and linting is enforced via pre-commit hooks using ruff.
+The hooks automatically format code and block commits with unfixable linting issues in `src/`.
 
 ---
 

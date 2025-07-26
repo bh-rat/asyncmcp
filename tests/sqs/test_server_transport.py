@@ -2,27 +2,16 @@
 Comprehensive anyio fixture tests for SQS server transport module.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import anyio
+import pytest
 from mcp.shared.message import SessionMessage
 
-from asyncmcp.sqs.utils import SqsTransportConfig
-from asyncmcp.sqs.server import SqsTransport
+from asyncmcp.common.utils import to_session_message
 from asyncmcp.sqs.manager import SqsSessionManager
-from asyncmcp.common.aws_queue_utils import to_session_message
-
-from .shared_fixtures import (
-    mock_sqs_client,
-    sample_sqs_message,
-    sample_initialize_sqs_message,
-    sample_jsonrpc_request,
-    sample_jsonrpc_notification,
-    sample_jsonrpc_response,
-    server_transport_config,
-    mock_mcp_server,
-)
+from asyncmcp.sqs.server import SqsTransport
+from asyncmcp.sqs.utils import SqsServerConfig
 
 
 @pytest.fixture
@@ -254,8 +243,8 @@ class TestServerConfigurationValidation:
     """Test server configuration validation with new dynamic queue system."""
 
     def test_server_config_creation(self):
-        """Test basic server configuration creation (no write_queue_url)."""
-        config = SqsTransportConfig(
+        """Test basic server configuration creation."""
+        config = SqsServerConfig(
             read_queue_url="http://localhost:4566/000000000000/server-read-queue",
         )
 
@@ -266,7 +255,7 @@ class TestServerConfigurationValidation:
 
     def test_server_config_with_custom_values(self):
         """Test server configuration with custom values."""
-        config = SqsTransportConfig(
+        config = SqsServerConfig(
             read_queue_url="http://localhost:4566/000000000000/server-read-queue",
             max_messages=15,
             wait_time_seconds=30,
@@ -282,7 +271,7 @@ class TestServerConfigurationValidation:
     def test_server_config_no_write_queue_needed(self):
         """Test that server config no longer requires write_queue_url."""
         # This should work fine - no write_queue_url needed
-        config = SqsTransportConfig(read_queue_url="http://localhost:4566/000000000000/server-requests")
+        config = SqsServerConfig(read_queue_url="http://localhost:4566/000000000000/server-requests")
 
         assert config.read_queue_url == "http://localhost:4566/000000000000/server-requests"
         # write_queue_url is no longer a field

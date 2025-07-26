@@ -3,19 +3,15 @@ Tests for SNS/SQS server transport functionality.
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
-
-import anyio
 from mcp.shared.message import SessionMessage
 
 # Add missing imports
-from mcp.types import JSONRPCMessage, JSONRPCResponse
+from asyncmcp import SnsSqsServerConfig
 
 # Fix imports to use correct common modules
-from asyncmcp.common.aws_queue_utils import to_session_message, delete_sqs_message
+from asyncmcp.common.aws_queue_utils import delete_sqs_message
+from asyncmcp.common.utils import to_session_message
 from asyncmcp.sns_sqs.server import SnsSqsTransport
-from asyncmcp.sns_sqs.manager import SnsSqsSessionManager
-from asyncmcp import SnsSqsServerConfig, sns_sqs_server
 
 
 class TestProcessSQSMessageServer:

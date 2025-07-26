@@ -2,26 +2,18 @@
 Comprehensive anyio fixture tests for SQS client transport module.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
+import json
+from unittest.mock import patch
 
 import anyio
+import pytest
 from mcp.shared.message import SessionMessage
 
-# Updated imports to use correct modules
-from asyncmcp.sqs.utils import SqsTransportConfig
-from asyncmcp.sqs.client import sqs_client, _create_sqs_message_attributes
-from asyncmcp.common.aws_queue_utils import to_session_message
+from asyncmcp.common.utils import to_session_message
+from asyncmcp.sqs.client import sqs_client
 
-from .shared_fixtures import (
-    mock_sqs_client,
-    sample_sqs_message,
-    sample_jsonrpc_request,
-    sample_jsonrpc_initialize_request,
-    sample_jsonrpc_notification,
-    client_transport_config,
-    client_response_queue_url,
-)
+# Updated imports to use correct modules
+from asyncmcp.sqs.utils import SqsClientConfig
 
 
 @pytest.fixture
@@ -40,7 +32,7 @@ class TestSqsClient:
             mock_run_sync.return_value = {"Messages": []}
 
             with anyio.move_on_after(0.1):  # Add timeout to prevent hanging
-                async with sqs_client(transport_config, mock_sqs_client, client_response_queue_url) as (
+                async with sqs_client(transport_config, mock_sqs_client) as (
                     read_stream,
                     write_stream,
                 ):
@@ -60,7 +52,7 @@ class TestSqsClient:
         mock_sqs_client.receive_message.return_value = {"Messages": []}
 
         with anyio.move_on_after(0.5):
-            async with sqs_client(transport_config, mock_sqs_client, client_response_queue_url) as (
+            async with sqs_client(transport_config, mock_sqs_client) as (
                 read_stream,
                 write_stream,
             ):
@@ -76,8 +68,6 @@ class TestSqsClient:
                 message_body = call_args[1]["MessageBody"]
 
                 # Parse the message body and check it contains response_queue_url
-                import json
-
                 parsed_message = json.loads(message_body)
                 assert "params" in parsed_message
                 assert "response_queue_url" in parsed_message["params"]
@@ -95,7 +85,7 @@ class TestSqsClient:
         mock_sqs_client.receive_message.return_value = {"Messages": []}
 
         with anyio.move_on_after(0.5):
-            async with sqs_client(transport_config, mock_sqs_client, client_response_queue_url) as (
+            async with sqs_client(transport_config, mock_sqs_client) as (
                 read_stream,
                 write_stream,
             ):
@@ -109,9 +99,6 @@ class TestSqsClient:
                 # Regular requests should not have response_queue_url added
                 call_args = mock_sqs_client.send_message.call_args
                 message_body = call_args[1]["MessageBody"]
-
-                import json
-
                 parsed_message = json.loads(message_body)
                 # Should be the original message without response_queue_url added
                 assert parsed_message["method"] == "test/method"
@@ -144,7 +131,7 @@ class TestSqsClient:
             mock_sqs_client.delete_message.return_value = {}
 
             with anyio.move_on_after(0.5):
-                async with sqs_client(transport_config, mock_sqs_client, client_response_queue_url) as (
+                async with sqs_client(transport_config, mock_sqs_client) as (
                     read_stream,
                     write_stream,
                 ):
@@ -155,8 +142,16 @@ class TestSqsClient:
                         assert response.message.root.result == {"status": "success"}
 
     @pytest.mark.anyio
-    async def test_client_error_handling_in_reader(self, transport_config, client_response_queue_url, mock_sqs_client):
+    async def test_client_error_handling_in_reader(self, client_response_queue_url, mock_sqs_client):
         """Test error handling in client SQS reader task."""
+        # Create a custom config with fast polling for this test
+        fast_config = SqsClientConfig(
+            read_queue_url="http://localhost:4566/000000000000/server-requests",
+            response_queue_url="http://localhost:4566/000000000000/client-responses",
+            client_id="test-client",
+            poll_interval_seconds=0.01,  # Very fast polling for quick retries
+        )
+
         call_count = 0
 
         def side_effect(*args, **kwargs):
@@ -172,7 +167,7 @@ class TestSqsClient:
         mock_sqs_client.receive_message.side_effect = side_effect
 
         with anyio.move_on_after(0.2):
-            async with sqs_client(transport_config, mock_sqs_client, client_response_queue_url) as (
+            async with sqs_client(fast_config, mock_sqs_client) as (
                 read_stream,
                 write_stream,
             ):
@@ -205,7 +200,7 @@ class TestSqsClient:
         mock_sqs_client.receive_message.return_value = {"Messages": []}
 
         with anyio.move_on_after(0.5):
-            async with sqs_client(transport_config, mock_sqs_client, client_response_queue_url) as (
+            async with sqs_client(transport_config, mock_sqs_client) as (
                 read_stream,
                 write_stream,
             ):
@@ -247,80 +242,27 @@ class TestProcessSQSMessage:
             await to_session_message(invalid_message)
 
 
-class TestCreateSQSMessageAttributesClient:
-    """Test the client _create_sqs_message_attributes function."""
-
-    @pytest.mark.anyio
-    async def test_create_basic_attributes(self, transport_config, sample_jsonrpc_request):
-        """Test creating basic message attributes for client requests."""
-        session_message = SessionMessage(sample_jsonrpc_request)
-        attrs = await _create_sqs_message_attributes(
-            session_message, transport_config, "test-client-123", "test-session-123"
-        )
-
-        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
-        assert attrs["MessageType"]["DataType"] == "String"
-        assert attrs["ClientId"]["StringValue"] == "test-client-123"
-        assert attrs["RequestId"]["StringValue"] == "1"
-        assert attrs["Method"]["StringValue"] == "test/method"
-        assert "Timestamp" in attrs
-        assert attrs["SessionId"]["StringValue"] == "test-session-123"
-
-    @pytest.mark.anyio
-    async def test_create_attributes_for_notification(self, transport_config, sample_jsonrpc_notification):
-        """Test creating message attributes for client notifications."""
-        session_message = SessionMessage(sample_jsonrpc_notification)
-        attrs = await _create_sqs_message_attributes(session_message, transport_config, "notif-client", "notif-session")
-
-        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
-        assert attrs["ClientId"]["StringValue"] == "notif-client"
-        assert attrs["Method"]["StringValue"] == "test/notification"
-        assert "RequestId" not in attrs  # Notifications don't have request IDs
-        assert attrs["SessionId"]["StringValue"] == "notif-session"
-
-    @pytest.mark.anyio
-    async def test_create_attributes_with_custom_config(self, transport_config, sample_jsonrpc_request):
-        """Test creating message attributes with custom configuration."""
-        transport_config.message_attributes = {"CustomAttr": "custom-value"}
-        session_message = SessionMessage(sample_jsonrpc_request)
-        attrs = await _create_sqs_message_attributes(
-            session_message, transport_config, "custom-client", "custom-session"
-        )
-
-        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
-        assert attrs["ClientId"]["StringValue"] == "custom-client"
-        assert attrs["CustomAttr"]["StringValue"] == "custom-value"
-        assert attrs["SessionId"]["StringValue"] == "custom-session"
-
-    @pytest.mark.anyio
-    async def test_create_attributes_without_session_id(self, transport_config, sample_jsonrpc_request):
-        """Test creating message attributes without session ID (initialize request)."""
-        session_message = SessionMessage(sample_jsonrpc_request)
-        attrs = await _create_sqs_message_attributes(session_message, transport_config, "init-client", None)
-
-        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
-        assert attrs["ClientId"]["StringValue"] == "init-client"
-        assert "SessionId" not in attrs  # Should not include SessionId when None
-
-
 class TestClientConfigurationValidation:
     """Test client configuration validation with new dynamic queue system."""
 
     def test_client_config_creation(self):
-        """Test basic client configuration creation (no write_queue_url)."""
-        config = SqsTransportConfig(
+        """Test basic client configuration creation."""
+        config = SqsClientConfig(
             read_queue_url="http://localhost:4566/000000000000/server-requests",
+            response_queue_url="http://localhost:4566/000000000000/client-responses",
         )
 
         assert config.read_queue_url == "http://localhost:4566/000000000000/server-requests"
+        assert config.response_queue_url == "http://localhost:4566/000000000000/client-responses"
         assert config.max_messages == 10  # Default value
         assert config.wait_time_seconds == 20  # Default value
         assert config.poll_interval_seconds == 5.0  # Default value
 
     def test_client_config_with_custom_values(self):
         """Test client configuration with custom values."""
-        config = SqsTransportConfig(
+        config = SqsClientConfig(
             read_queue_url="http://localhost:4566/000000000000/server-requests",
+            response_queue_url="http://localhost:4566/000000000000/client-responses",
             max_messages=5,
             wait_time_seconds=10,
             poll_interval_seconds=1.0,
@@ -335,8 +277,12 @@ class TestClientConfigurationValidation:
     def test_client_config_no_write_queue_needed(self):
         """Test that client config no longer requires write_queue_url."""
         # This should work fine - no write_queue_url needed
-        config = SqsTransportConfig(read_queue_url="http://localhost:4566/000000000000/server-requests")
+        config = SqsClientConfig(
+            read_queue_url="http://localhost:4566/000000000000/server-requests",
+            response_queue_url="http://localhost:4566/000000000000/client-responses",
+        )
 
         assert config.read_queue_url == "http://localhost:4566/000000000000/server-requests"
+        assert config.response_queue_url == "http://localhost:4566/000000000000/client-responses"
         # write_queue_url is no longer a field
         assert not hasattr(config, "write_queue_url")
