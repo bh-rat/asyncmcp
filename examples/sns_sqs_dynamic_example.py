@@ -23,7 +23,7 @@ from mcp.server import Server
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest
 
-from asyncmcp import SnsSqsServerConfig, SnsSqsClientConfig, SnsSqsSessionManager, sns_sqs_client
+from asyncmcp import SnsSqsClientConfig, SnsSqsServerConfig, SnsSqsSessionManager, sns_sqs_client
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

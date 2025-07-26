@@ -20,6 +20,7 @@ def create_common_client_message_attributes(
     session_message: SessionMessage,
     client_id: Optional[str],
     session_id: Optional[str],
+    protocol_version: Optional[str] = None,
 ):
     """Creates common message attributes."""
     attrs = {
@@ -29,10 +30,12 @@ def create_common_client_message_attributes(
 
     message_root = session_message.message.root
     if isinstance(message_root, types.JSONRPCRequest):
-        attrs.update({
-            "RequestId": {"DataType": "String", "StringValue": str(message_root.id)},
-            "Method": {"DataType": "String", "StringValue": message_root.method},
-        })
+        attrs.update(
+            {
+                "RequestId": {"DataType": "String", "StringValue": str(message_root.id)},
+                "Method": {"DataType": "String", "StringValue": message_root.method},
+            }
+        )
     elif isinstance(message_root, types.JSONRPCNotification):
         attrs["Method"] = {"DataType": "String", "StringValue": message_root.method}
 
@@ -42,11 +45,13 @@ def create_common_client_message_attributes(
     if client_id:
         attrs["ClientId"] = {"DataType": "String", "StringValue": client_id}
 
+    if protocol_version:
+        attrs["ProtocolVersion"] = {"DataType": "String", "StringValue": protocol_version}
+
     return attrs
 
 
-async def to_session_message(sqs_message: Dict[str, Any]) -> SessionMessage:
-    """Convert SQS message to SessionMessage."""
+async def get_parsed_message(sqs_message: Dict[str, Any]) -> Dict[str, Any]:
     try:
         body = sqs_message["Body"]
 
@@ -71,6 +76,15 @@ async def to_session_message(sqs_message: Dict[str, Any]) -> SessionMessage:
         else:
             parsed = actual_message
 
+        return parsed
+    except Exception as e:
+        raise ValueError(f"Invalid JSON-RPC message: {e}")
+
+
+async def to_session_message(sqs_message: Dict[str, Any]) -> SessionMessage:
+    """Convert SQS message to SessionMessage."""
+    try:
+        parsed = await get_parsed_message(sqs_message)
         message = types.JSONRPCMessage.model_validate(parsed)
         return SessionMessage(message)
     except Exception as e:
@@ -123,26 +137,40 @@ async def sqs_reader(
                 messages = response.get("Messages", [])
                 if messages:
                     for message in messages:
-                        # TODO : only do this if the message is an initialized notification
+                        # Extract session ID only for initialize response messages
                         if state.session_id is None:
                             session_id = None
                             msg_attrs = message.get("MessageAttributes", {})
 
-                            if "SessionId" in msg_attrs:
-                                session_id = msg_attrs["SessionId"]["StringValue"]
-                            else:
-                                # Check if this is an SNS notification and extract attributes from there
-                                try:
-                                    body = json.loads(message["Body"])
-                                    if "MessageAttributes" in body:
-                                        sns_attrs = body["MessageAttributes"]
-                                        if "SessionId" in sns_attrs:
-                                            session_id = sns_attrs["SessionId"]["Value"]
-                                except (json.JSONDecodeError, KeyError):
-                                    pass
+                            # First check if this is an initialize response
+                            try:
+                                parsed = await get_parsed_message(message)
 
-                            if session_id:
-                                await state.set_session_id_if_none(session_id)
+                                # Only extract session ID if this is an initialize response
+                                is_initialize_response = isinstance(
+                                    parsed.get("result"), dict
+                                ) and "protocolVersion" in parsed.get("result", {})
+
+                                if is_initialize_response:
+                                    if "SessionId" in msg_attrs:
+                                        session_id = msg_attrs["SessionId"]["StringValue"]
+                                    else:
+                                        # Check if this is an SNS notification and extract attributes from there
+                                        try:
+                                            sns_body = json.loads(message["Body"])
+                                            if "MessageAttributes" in sns_body:
+                                                sns_attrs = sns_body["MessageAttributes"]
+                                                if "SessionId" in sns_attrs:
+                                                    session_id = sns_attrs["SessionId"]["Value"]
+                                        except (json.JSONDecodeError, KeyError):
+                                            pass
+
+                                    if session_id:
+                                        await state.set_session_id_if_none(session_id)
+
+                            except (json.JSONDecodeError, KeyError, TypeError):
+                                # If we can't parse the message, skip session ID extraction
+                                pass
 
                     await anyio.lowlevel.checkpoint()
 

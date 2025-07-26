@@ -5,15 +5,15 @@ import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.shared._httpx_utils import create_mcp_http_client
-
-from asyncmcp.sns_sqs.manager import SnsSqsSessionManager
-from asyncmcp.sqs.manager import SqsSessionManager
 from shared import (
-    print_colored,
     TRANSPORT_SNS_SQS,
     TRANSPORT_SQS,
     create_server_transport_config,
+    print_colored,
 )
+
+from asyncmcp.sns_sqs.manager import SnsSqsSessionManager
+from asyncmcp.sqs.manager import SqsSessionManager
 
 
 async def fetch_website(

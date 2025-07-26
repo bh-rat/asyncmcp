@@ -4,16 +4,15 @@ Sample MCP Server using webhook transport
 """
 
 import anyio
-import uvicorn
-
 import click
 import mcp.types as types
+import uvicorn
 from mcp.server.lowlevel import Server
 from mcp.shared._httpx_utils import create_mcp_http_client
+from shared import print_colored
 
 from asyncmcp.webhook.manager import WebhookSessionManager
 from asyncmcp.webhook.utils import WebhookServerConfig
-from shared import create_server_transport_config, print_colored, TRANSPORT_WEBHOOK
 
 
 async def fetch_website(

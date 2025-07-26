@@ -9,17 +9,17 @@ In this example:
 
 import asyncio
 import sys
-import boto3
 import time
-import anyio
 
-from mcp.server.lowlevel.server import Server
+import anyio
+import boto3
 import mcp.types as types
+from mcp.server.lowlevel.server import Server
+from mcp.shared.message import SessionMessage
 
 from asyncmcp.sqs.client import sqs_client
-from mcp.shared.message import SessionMessage
 from asyncmcp.sqs.manager import SqsSessionManager
-from asyncmcp.sqs.utils import SqsServerConfig, SqsClientConfig
+from asyncmcp.sqs.utils import SqsClientConfig, SqsServerConfig
 
 # Setup LocalStack AWS clients
 AWS_CONFIG = {
@@ -42,7 +42,7 @@ async def ensure_queues_exist():
 
     for queue_name in queues_to_create:
         try:
-            response = sqs_client.create_queue(QueueName=queue_name)
+            sqs_client.create_queue(QueueName=queue_name)
         except Exception as e:
             if "QueueAlreadyExists" in str(e) or "already exists" in str(e):
                 pass  # Queue already exists, which is fine

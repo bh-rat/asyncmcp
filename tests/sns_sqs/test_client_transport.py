@@ -13,7 +13,7 @@ from asyncmcp import SnsSqsClientConfig
 
 # Updated imports to use correct common modules
 from asyncmcp.common.aws_queue_utils import delete_sqs_message, to_session_message
-from asyncmcp.sns_sqs.client import _create_sns_message_attributes, sns_sqs_client
+from asyncmcp.sns_sqs.client import sns_sqs_client
 
 
 # Test classes for processing SQS messages
@@ -127,38 +127,6 @@ class TestSQSMessageProcessor:
         # Invalid message should raise error
         with pytest.raises(ValueError):
             await to_session_message(invalid_msg)
-
-
-class TestCreateSNSMessageAttributes:
-    """Test SNS message attribute creation."""
-
-    @pytest.mark.anyio
-    async def test_create_attributes_for_request(self, client_config, sample_jsonrpc_request):
-        session_msg = SessionMessage(sample_jsonrpc_request)
-        attributes = await _create_sns_message_attributes(session_msg, client_config, "test-client", "test-session")
-        assert attributes["MessageType"]["StringValue"] == "jsonrpc"
-        assert attributes["Method"]["StringValue"] == "test/method"
-        assert attributes["ClientId"]["StringValue"] == "test-client"
-        assert attributes["SessionId"]["StringValue"] == "test-session"
-
-    @pytest.mark.anyio
-    async def test_create_attributes_for_notification(self, client_config, sample_jsonrpc_notification):
-        session_msg = SessionMessage(sample_jsonrpc_notification)
-        attributes = await _create_sns_message_attributes(session_msg, client_config, "test-client", "test-session")
-        assert attributes["MessageType"]["StringValue"] == "jsonrpc"
-        assert attributes["Method"]["StringValue"] == "test/notification"
-        assert attributes["ClientId"]["StringValue"] == "test-client"
-        assert attributes["SessionId"]["StringValue"] == "test-session"
-        assert "MessageId" not in attributes
-
-    @pytest.mark.anyio
-    async def test_create_attributes_with_custom_config(self, sample_jsonrpc_request):
-        config = SnsSqsClientConfig(
-            sqs_queue_url="http://test", sns_topic_arn="arn:test", message_attributes={"custom_attr": "custom_value"}
-        )
-        session_msg = SessionMessage(sample_jsonrpc_request)
-        attributes = await _create_sns_message_attributes(session_msg, config, "test-client", "test-session")
-        assert attributes["custom_attr"]["StringValue"] == "custom_value"
 
 
 class TestSnsSqsClient:

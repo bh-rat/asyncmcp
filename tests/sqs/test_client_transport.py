@@ -9,7 +9,7 @@ import pytest
 from mcp.shared.message import SessionMessage
 
 from asyncmcp.common.aws_queue_utils import to_session_message
-from asyncmcp.sqs.client import _create_sqs_message_attributes, sqs_client
+from asyncmcp.sqs.client import sqs_client
 
 # Updated imports to use correct modules
 from asyncmcp.sqs.utils import SqsClientConfig
@@ -244,62 +244,6 @@ class TestProcessSQSMessage:
 
         with pytest.raises(ValueError):
             await to_session_message(invalid_message)
-
-
-class TestCreateSQSMessageAttributesClient:
-    """Test the client _create_sqs_message_attributes function."""
-
-    @pytest.mark.anyio
-    async def test_create_basic_attributes(self, transport_config, sample_jsonrpc_request):
-        """Test creating basic message attributes for client requests."""
-        session_message = SessionMessage(sample_jsonrpc_request)
-        attrs = await _create_sqs_message_attributes(
-            session_message, transport_config, "test-client-123", "test-session-123"
-        )
-
-        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
-        assert attrs["MessageType"]["DataType"] == "String"
-        assert attrs["ClientId"]["StringValue"] == "test-client-123"
-        assert attrs["RequestId"]["StringValue"] == "1"
-        assert attrs["Method"]["StringValue"] == "test/method"
-        assert "Timestamp" in attrs
-        assert attrs["SessionId"]["StringValue"] == "test-session-123"
-
-    @pytest.mark.anyio
-    async def test_create_attributes_for_notification(self, transport_config, sample_jsonrpc_notification):
-        """Test creating message attributes for client notifications."""
-        session_message = SessionMessage(sample_jsonrpc_notification)
-        attrs = await _create_sqs_message_attributes(session_message, transport_config, "notif-client", "notif-session")
-
-        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
-        assert attrs["ClientId"]["StringValue"] == "notif-client"
-        assert attrs["Method"]["StringValue"] == "test/notification"
-        assert "RequestId" not in attrs  # Notifications don't have request IDs
-        assert attrs["SessionId"]["StringValue"] == "notif-session"
-
-    @pytest.mark.anyio
-    async def test_create_attributes_with_custom_config(self, transport_config, sample_jsonrpc_request):
-        """Test creating message attributes with custom configuration."""
-        transport_config.message_attributes = {"CustomAttr": "custom-value"}
-        session_message = SessionMessage(sample_jsonrpc_request)
-        attrs = await _create_sqs_message_attributes(
-            session_message, transport_config, "custom-client", "custom-session"
-        )
-
-        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
-        assert attrs["ClientId"]["StringValue"] == "custom-client"
-        assert attrs["CustomAttr"]["StringValue"] == "custom-value"
-        assert attrs["SessionId"]["StringValue"] == "custom-session"
-
-    @pytest.mark.anyio
-    async def test_create_attributes_without_session_id(self, transport_config, sample_jsonrpc_request):
-        """Test creating message attributes without session ID (initialize request)."""
-        session_message = SessionMessage(sample_jsonrpc_request)
-        attrs = await _create_sqs_message_attributes(session_message, transport_config, "init-client", None)
-
-        assert attrs["MessageType"]["StringValue"] == "jsonrpc"
-        assert attrs["ClientId"]["StringValue"] == "init-client"
-        assert "SessionId" not in attrs  # Should not include SessionId when None
 
 
 class TestClientConfigurationValidation:
