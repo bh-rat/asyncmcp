@@ -129,10 +129,6 @@ class TestSQSMessageProcessor:
             await to_session_message(invalid_msg)
 
 
-# Note: SNS message attribute creation tests have been removed as this functionality
-# is now internal to the SnsSqsClientTransport class and tested through integration tests.
-
-
 class TestSnsSqsClient:
     """Test the main sns_sqs_client context manager."""
 

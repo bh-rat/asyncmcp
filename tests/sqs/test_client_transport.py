@@ -246,10 +246,6 @@ class TestProcessSQSMessage:
             await to_session_message(invalid_message)
 
 
-# Note: Message attribute creation tests have been removed as this functionality
-# is now internal to the SqsClientTransport class and tested through integration tests.
-
-
 class TestClientConfigurationValidation:
     """Test client configuration validation with new dynamic queue system."""
 
