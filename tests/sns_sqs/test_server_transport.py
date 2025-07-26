@@ -9,7 +9,8 @@ from mcp.shared.message import SessionMessage
 from asyncmcp import SnsSqsServerConfig
 
 # Fix imports to use correct common modules
-from asyncmcp.common.aws_queue_utils import delete_sqs_message, to_session_message
+from asyncmcp.common.aws_queue_utils import delete_sqs_message
+from asyncmcp.common.utils import to_session_message
 from asyncmcp.sns_sqs.server import SnsSqsTransport
 
 

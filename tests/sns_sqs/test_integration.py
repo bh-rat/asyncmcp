@@ -2,6 +2,7 @@
 Integration tests for SNS/SQS transport functionality.
 """
 
+import json
 from unittest.mock import MagicMock
 
 import anyio
@@ -11,11 +12,12 @@ import pytest
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest
 
-# Import the server function
+# Import the server function and session manager
 from asyncmcp import SnsSqsClientConfig, sns_sqs_server
 
 # Fix imports to use correct common modules
 from asyncmcp.sns_sqs.client import sns_sqs_client
+from asyncmcp.sns_sqs.manager import SnsSqsSessionManager
 
 
 class TestClientServerIntegration:
@@ -317,3 +319,234 @@ class TestConcurrentClientServer:
 
             # Test primarily verifies no crashes occur with concurrent clients
             # Each client uses separate mock instances, so we just verify no exceptions
+
+
+class TestSNSSQSValidationScenarios:
+    """Test SNS+SQS transport validation scenarios."""
+
+    @pytest.mark.anyio
+    async def test_invalid_json_in_sns_message(self, server_config, mock_mcp_server):
+        """Test handling of invalid JSON in SNS message body."""
+        mock_sqs = MagicMock()
+        mock_sns = MagicMock()
+
+        # Mock SNS notification with invalid JSON
+        invalid_sns_message = {
+            "MessageId": "invalid-sns-1",
+            "ReceiptHandle": "invalid-sns-handle-1",
+            "Body": json.dumps(
+                {
+                    "Type": "Notification",
+                    "Message": '{"jsonrpc": "2.0", "id": 1, "method": "test"',  # Missing closing brace
+                    "TopicArn": "arn:aws:sns:us-east-1:123456789012:test-topic",
+                }
+            ),
+            "MessageAttributes": {},
+        }
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"Messages": [invalid_sns_message]}
+            else:
+                return {"Messages": []}
+
+        mock_sqs.receive_message.side_effect = receive_side_effect
+        mock_sqs.delete_message.return_value = {}
+
+        session_manager = SnsSqsSessionManager(
+            app=mock_mcp_server, config=server_config, sqs_client=mock_sqs, sns_client=mock_sns
+        )
+
+        with anyio.move_on_after(0.5):
+            async with session_manager.run():
+                await anyio.sleep(0.2)
+                # Invalid message should be deleted after parsing failure
+                mock_sqs.delete_message.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_invalid_protocol_version_in_sns_message(self, server_config, mock_mcp_server):
+        """Test handling of invalid protocol version in SNS message attributes."""
+        mock_sqs = MagicMock()
+        mock_sns = MagicMock()
+
+        # Mock SNS notification with invalid protocol version
+        message_with_invalid_version = {
+            "MessageId": "invalid-version-sns-1",
+            "ReceiptHandle": "invalid-version-sns-handle-1",
+            "Body": json.dumps(
+                {
+                    "Type": "Notification",
+                    "Message": json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}),
+                    "TopicArn": "arn:aws:sns:us-east-1:123456789012:test-topic",
+                }
+            ),
+            "MessageAttributes": {
+                "ProtocolVersion": {"DataType": "String", "StringValue": "1.5"},  # Invalid version
+                "SessionId": {"DataType": "String", "StringValue": "test-session-123"},
+            },
+        }
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"Messages": [message_with_invalid_version]}
+            else:
+                return {"Messages": []}
+
+        mock_sqs.receive_message.side_effect = receive_side_effect
+        mock_sqs.delete_message.return_value = {}
+        mock_sns.publish.return_value = {"MessageId": "error-response"}
+
+        session_manager = SnsSqsSessionManager(
+            app=mock_mcp_server, config=server_config, sqs_client=mock_sqs, sns_client=mock_sns
+        )
+
+        with anyio.move_on_after(0.5):
+            async with session_manager.run():
+                await anyio.sleep(0.2)
+                # Should publish error response and delete invalid message
+                mock_sqs.delete_message.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_invalid_session_id_in_sns_message(self, server_config, mock_mcp_server):
+        """Test handling of invalid session ID in SNS message attributes."""
+        mock_sqs = MagicMock()
+        mock_sns = MagicMock()
+
+        # Mock SNS notification with invalid session ID format
+        message_with_invalid_session = {
+            "MessageId": "invalid-session-sns-1",
+            "ReceiptHandle": "invalid-session-sns-handle-1",
+            "Body": json.dumps(
+                {
+                    "Type": "Notification",
+                    "Message": json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}),
+                    "TopicArn": "arn:aws:sns:us-east-1:123456789012:test-topic",
+                }
+            ),
+            "MessageAttributes": {
+                "ProtocolVersion": {"DataType": "String", "StringValue": "2024-11-05"},
+                "SessionId": {"DataType": "String", "StringValue": "invalid session id"},  # Contains spaces
+            },
+        }
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"Messages": [message_with_invalid_session]}
+            else:
+                return {"Messages": []}
+
+        mock_sqs.receive_message.side_effect = receive_side_effect
+        mock_sqs.delete_message.return_value = {}
+        mock_sns.publish.return_value = {"MessageId": "error-response"}
+
+        session_manager = SnsSqsSessionManager(
+            app=mock_mcp_server, config=server_config, sqs_client=mock_sqs, sns_client=mock_sns
+        )
+
+        with anyio.move_on_after(0.5):
+            async with session_manager.run():
+                await anyio.sleep(0.2)
+                # Should publish error response and delete invalid message
+                mock_sqs.delete_message.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_missing_session_id_for_non_initialize_sns(self, server_config, mock_mcp_server):
+        """Test handling of non-initialize SNS notification without session ID."""
+        mock_sqs = MagicMock()
+        mock_sns = MagicMock()
+
+        # Mock non-initialize request without session ID
+        message_without_session = {
+            "MessageId": "no-session-sns-1",
+            "ReceiptHandle": "no-session-sns-handle-1",
+            "Body": json.dumps(
+                {
+                    "Type": "Notification",
+                    "Message": json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}),
+                    "TopicArn": "arn:aws:sns:us-east-1:123456789012:test-topic",
+                }
+            ),
+            "MessageAttributes": {
+                "ProtocolVersion": {"DataType": "String", "StringValue": "2024-11-05"}
+                # Missing SessionId
+            },
+        }
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"Messages": [message_without_session]}
+            else:
+                return {"Messages": []}
+
+        mock_sqs.receive_message.side_effect = receive_side_effect
+        mock_sqs.delete_message.return_value = {}
+        mock_sns.publish.return_value = {"MessageId": "error-response"}
+
+        session_manager = SnsSqsSessionManager(
+            app=mock_mcp_server, config=server_config, sqs_client=mock_sqs, sns_client=mock_sns
+        )
+
+        with anyio.move_on_after(0.5):
+            async with session_manager.run():
+                await anyio.sleep(0.2)
+                # Should publish error response for missing session ID
+                mock_sqs.delete_message.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_malformed_sns_notification_structure(self, server_config, mock_mcp_server):
+        """Test handling of malformed SNS notification structure."""
+        mock_sqs = MagicMock()
+        mock_sns = MagicMock()
+
+        # Mock malformed SNS notification (missing required fields)
+        malformed_sns_message = {
+            "MessageId": "malformed-sns-1",
+            "ReceiptHandle": "malformed-sns-handle-1",
+            "Body": json.dumps(
+                {
+                    "InvalidField": "not a proper SNS notification",
+                    "Message": json.dumps({"jsonrpc": "2.0", "id": 1, "method": "test", "params": {}}),
+                    # Missing Type and TopicArn
+                }
+            ),
+            "MessageAttributes": {},
+        }
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"Messages": [malformed_sns_message]}
+            else:
+                return {"Messages": []}
+
+        mock_sqs.receive_message.side_effect = receive_side_effect
+        mock_sqs.delete_message.return_value = {}
+
+        session_manager = SnsSqsSessionManager(
+            app=mock_mcp_server, config=server_config, sqs_client=mock_sqs, sns_client=mock_sns
+        )
+
+        with anyio.move_on_after(0.5):
+            async with session_manager.run():
+                await anyio.sleep(0.2)
+                # Malformed message should be deleted after parsing failure
+                mock_sqs.delete_message.assert_called_once()

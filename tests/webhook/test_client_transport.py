@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import anyio
 import httpx
 import pytest
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
 
 from asyncmcp.common.client_state import ClientState
@@ -140,7 +141,6 @@ class TestWebhookClient:
 
         # In the refactored version, webhook URL must be provided in _meta by external app
         # The client no longer automatically injects the webhook URL
-        import json
 
         body_content = call_args.kwargs["content"]
         parsed_body = json.loads(body_content)
@@ -209,8 +209,6 @@ class TestWebhookClient:
         client = WebhookClient(transport_config, webhook_path)
 
         # Mock streams
-        from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-
         mock_read_stream = MagicMock(spec=MemoryObjectReceiveStream)
         mock_write_stream = MagicMock(spec=MemoryObjectSendStream)
         client.read_stream = mock_read_stream

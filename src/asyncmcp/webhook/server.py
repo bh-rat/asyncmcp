@@ -5,11 +5,14 @@ The server receives HTTP POST requests from clients and sends responses via webh
 """
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
 import httpx
 from anyio.streams.memory import MemoryObjectSendStream
+from mcp import JSONRPCError
 from mcp.shared.message import SessionMessage
+from mcp.types import JSONRPCMessage
 
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 from asyncmcp.common.server import ServerTransport
@@ -78,12 +81,30 @@ class WebhookTransport(ServerTransport):
         except Exception as e:
             logger.warning(f"Error sending message to session {self.session_id}: {e}")
 
+    async def send_error_to_client_webhook(self, error_response: JSONRPCError) -> None:
+        """Send an error response to the client's webhook URL."""
+        if self._terminated:
+            logger.debug(f"Session {self.session_id} is terminated, skipping error send")
+            return
+
+        if not self.webhook_url:
+            logger.warning(f"No webhook URL set for session {self.session_id}")
+            return
+
+        try:
+            error_message = JSONRPCMessage(root=error_response)
+            error_session_message = SessionMessage(error_message)
+            await self.send_to_client_webhook(error_session_message)
+            logger.debug(f"Sent error response to webhook: {error_response.error.message}")
+
+        except Exception as e:
+            logger.error(f"Error sending error response to webhook {self.webhook_url}: {e}")
+            # Don't re-raise here to avoid error loops
+
 
 @asynccontextmanager
 async def webhook_server(config: WebhookServerConfig, http_client: httpx.AsyncClient, webhook_url: str):
     """Easy wrapper for initiating a webhook server transport"""
-    import uuid
-
     session_id = str(uuid.uuid4())
     transport = WebhookTransport(config, http_client, session_id, webhook_url=webhook_url)
 

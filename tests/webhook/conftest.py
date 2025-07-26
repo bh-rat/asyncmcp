@@ -1,5 +1,6 @@
 """Configuration and shared fixtures for webhook transport tests."""
 
+from asyncmcp.webhook.utils import SessionInfo
 from tests.webhook.shared_fixtures import (
     client_server_config,
     client_transport_config,
@@ -63,8 +64,6 @@ def mock_starlette_response():
 @pytest.fixture
 def mock_session_info():
     """Mock session info for testing."""
-    from asyncmcp.webhook.utils import SessionInfo
-
     return SessionInfo(
         session_id="test-session-123",
         client_id="test-client",

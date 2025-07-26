@@ -7,6 +7,7 @@ import pytest
 from tests.sns_sqs.shared_fixtures import (
     client_config,
     client_server_config,
+    mock_mcp_server,
     mock_sns_client,
     mock_sqs_client,
     sample_jsonrpc_notification,
@@ -17,6 +18,7 @@ from tests.sns_sqs.shared_fixtures import (
 
 # Make fixtures available for import
 __all__ = [
+    "mock_mcp_server",
     "mock_sqs_client",
     "mock_sns_client",
     "sample_sqs_message",

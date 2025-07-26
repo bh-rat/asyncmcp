@@ -12,6 +12,7 @@ from mcp.shared.message import SessionMessage
 from pydantic_core import ValidationError
 
 from asyncmcp.common.client_state import ClientState
+from asyncmcp.common.utils import to_session_message
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +52,40 @@ def create_common_client_message_attributes(
     return attrs
 
 
+def create_common_server_message_attributes(
+    session_message: SessionMessage,
+    session_id: Optional[str],
+    protocol_version: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Creates common message attributes for server-side messages."""
+    attrs = {
+        "MessageType": {"DataType": "String", "StringValue": "jsonrpc"},
+        "Timestamp": {"DataType": "Number", "StringValue": str(int(time.time()))},
+    }
+
+    message_root = session_message.message.root
+    if isinstance(message_root, types.JSONRPCRequest):
+        attrs.update(
+            {
+                "RequestId": {"DataType": "String", "StringValue": str(message_root.id)},
+                "Method": {"DataType": "String", "StringValue": message_root.method},
+            }
+        )
+    elif isinstance(message_root, types.JSONRPCNotification):
+        attrs["Method"] = {"DataType": "String", "StringValue": message_root.method}
+
+    if session_id:
+        attrs["SessionId"] = {"DataType": "String", "StringValue": session_id}
+
+    if protocol_version:
+        attrs["ProtocolVersion"] = {"DataType": "String", "StringValue": protocol_version}
+
+    return attrs
+
+
 async def get_parsed_message(sqs_message: Dict[str, Any]) -> Dict[str, Any]:
     try:
         body = sqs_message["Body"]
-
         # Handle SNS notification format
         if isinstance(body, str):
             try:
@@ -75,7 +106,6 @@ async def get_parsed_message(sqs_message: Dict[str, Any]) -> Dict[str, Any]:
             parsed = json.loads(actual_message)
         else:
             parsed = actual_message
-
         return parsed
     except Exception as e:
         raise ValueError(f"Invalid JSON-RPC message: {e}")
