@@ -2,11 +2,13 @@
 Comprehensive tests for webhook client transport module.
 """
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import httpx
 import pytest
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
 
 from asyncmcp.common.client_state import ClientState
@@ -29,14 +31,12 @@ class TestWebhookClient:
     @pytest.mark.anyio
     async def test_webhook_client_init(self, transport_config, webhook_url):
         """Test WebhookClient initialization."""
-        state = ClientState(client_id="test-client", session_id=None)
         webhook_path = "/webhook/response"  # Use path instead of full URL
-        client = WebhookClient(transport_config, state, webhook_path)
+        client = WebhookClient(transport_config, webhook_path)
 
-        assert client.config == transport_config
-        assert client.state == state
+        assert client.transport.config == transport_config
+        assert client.transport.config.server_url == "http://localhost:8000/mcp/request"
         assert client.webhook_path == webhook_path
-        assert client.server_url == "http://localhost:8000/mcp/request"
         assert client.http_client is None
         # webhook_server no longer exists in refactored version
         assert hasattr(client, "read_stream_writer")
@@ -44,31 +44,43 @@ class TestWebhookClient:
         assert hasattr(client, "write_stream")
 
     @pytest.mark.anyio
-    async def test_handle_webhook_response_success(self, transport_config, sample_webhook_request_body, webhook_url):
+    async def test_handle_webhook_response_success(self, transport_config, webhook_url):
         """Test successful webhook response handling."""
-        state = ClientState(client_id="test-client", session_id=None)
         webhook_path = "/webhook/response"
-        client = WebhookClient(transport_config, state, webhook_path)
+        client = WebhookClient(transport_config, webhook_path)
 
         # Don't set up streams to avoid hanging
         client.read_stream_writer = None
 
+        # Create an initialize response which should set session ID
+        initialize_response_body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "serverInfo": {"name": "test-server", "version": "1.0"},
+                },
+            }
+        ).encode("utf-8")
+
         # Mock request
         mock_request = MagicMock()
-        mock_request.body = AsyncMock(return_value=sample_webhook_request_body)
+        mock_request.body = AsyncMock(return_value=initialize_response_body)
         mock_request.headers = {"X-Session-ID": "test-session-123"}
 
         response = await client.handle_webhook_response(mock_request)
 
         assert response.status_code == 200
-        assert state.session_id == "test-session-123"
+        # Session ID should now be set since this is an initialize response
+        assert client.transport.client_state.session_id == "test-session-123"
 
     @pytest.mark.anyio
     async def test_handle_webhook_response_error(self, transport_config, webhook_url):
         """Test webhook response handling with error."""
-        state = ClientState(client_id="test-client", session_id=None)
         webhook_path = "/webhook/response"
-        client = WebhookClient(transport_config, state, webhook_path)
+        client = WebhookClient(transport_config, webhook_path)
 
         # Don't set up streams to avoid hanging
         client.read_stream_writer = None
@@ -85,9 +97,8 @@ class TestWebhookClient:
     @pytest.mark.anyio
     async def test_send_request_regular(self, transport_config, sample_jsonrpc_request, webhook_url):
         """Test sending regular request."""
-        state = ClientState(client_id="test-client", session_id="test-session")
         webhook_path = "/webhook/response"
-        client = WebhookClient(transport_config, state, webhook_path)
+        client = WebhookClient(transport_config, webhook_path)
 
         # Mock HTTP client
         mock_response = MagicMock()
@@ -111,9 +122,8 @@ class TestWebhookClient:
     @pytest.mark.anyio
     async def test_send_request_initialize(self, transport_config, sample_jsonrpc_initialize_request, webhook_url):
         """Test sending initialize request with webhook URL injection."""
-        state = ClientState(client_id="test-client", session_id=None)
         webhook_path = "/webhook/response"
-        client = WebhookClient(transport_config, state, webhook_path)
+        client = WebhookClient(transport_config, webhook_path)
 
         # Mock HTTP client
         mock_response = MagicMock()
@@ -131,7 +141,6 @@ class TestWebhookClient:
 
         # In the refactored version, webhook URL must be provided in _meta by external app
         # The client no longer automatically injects the webhook URL
-        import json
 
         body_content = call_args.kwargs["content"]
         parsed_body = json.loads(body_content)
@@ -143,7 +152,7 @@ class TestWebhookClient:
         """Test handling HTTP error in send_request."""
         state = ClientState(client_id="test-client", session_id="test-session")
         webhook_path = "/webhook/response"
-        client = WebhookClient(transport_config, state, webhook_path)
+        client = WebhookClient(transport_config, webhook_path)
 
         # Don't set up streams to avoid hanging
         client.read_stream_writer = None
@@ -162,9 +171,8 @@ class TestWebhookClient:
     @pytest.mark.anyio
     async def test_stop(self, transport_config, webhook_url):
         """Test client stop functionality."""
-        state = ClientState(client_id="test-client", session_id=None)
         webhook_path = "/webhook/response"
-        client = WebhookClient(transport_config, state, webhook_path)
+        client = WebhookClient(transport_config, webhook_path)
 
         # Mock HTTP client (webhook_server no longer exists)
         mock_http_client = AsyncMock()
@@ -179,9 +187,8 @@ class TestWebhookClient:
     @pytest.mark.anyio
     async def test_get_webhook_callback(self, transport_config):
         """Test getting webhook callback function."""
-        state = ClientState(client_id="test-client", session_id=None)
         webhook_path = "/webhook/response"
-        client = WebhookClient(transport_config, state, webhook_path)
+        client = WebhookClient(transport_config, webhook_path)
 
         callback = await client.get_webhook_callback()
         assert callback == client.handle_webhook_response
@@ -189,9 +196,8 @@ class TestWebhookClient:
     @pytest.mark.anyio
     async def test_get_streams_not_initialized(self, transport_config):
         """Test get_streams raises error when streams not initialized."""
-        state = ClientState(client_id="test-client", session_id=None)
         webhook_path = "/webhook/response"
-        client = WebhookClient(transport_config, state, webhook_path)
+        client = WebhookClient(transport_config, webhook_path)
 
         with pytest.raises(RuntimeError, match="Streams not initialized"):
             client.get_streams()
@@ -199,13 +205,10 @@ class TestWebhookClient:
     @pytest.mark.anyio
     async def test_get_streams_initialized(self, transport_config):
         """Test get_streams returns streams when initialized."""
-        state = ClientState(client_id="test-client", session_id=None)
         webhook_path = "/webhook/response"
-        client = WebhookClient(transport_config, state, webhook_path)
+        client = WebhookClient(transport_config, webhook_path)
 
         # Mock streams
-        from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-
         mock_read_stream = MagicMock(spec=MemoryObjectReceiveStream)
         mock_write_stream = MagicMock(spec=MemoryObjectSendStream)
         client.read_stream = mock_read_stream
@@ -270,27 +273,3 @@ class TestWebhookUtilities:
         """Test parsing invalid webhook request body."""
         with pytest.raises(Exception):
             await parse_webhook_request(b"invalid json")
-
-
-class TestClientState:
-    """Test client state management."""
-
-    @pytest.mark.anyio
-    async def test_client_state_init(self):
-        """Test client state initialization."""
-        state = ClientState(client_id="test-client", session_id=None)
-
-        assert state.client_id == "test-client"
-        assert state.session_id is None
-
-    @pytest.mark.anyio
-    async def test_set_session_id_if_none(self):
-        """Test setting session ID when none exists."""
-        state = ClientState(client_id="test-client", session_id=None)
-
-        await state.set_session_id_if_none("new-session-id")
-        assert state.session_id == "new-session-id"
-
-        # Should not overwrite existing session ID
-        await state.set_session_id_if_none("another-session-id")
-        assert state.session_id == "new-session-id"

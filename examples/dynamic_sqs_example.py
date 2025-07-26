@@ -42,7 +42,7 @@ async def ensure_queues_exist():
 
     for queue_name in queues_to_create:
         try:
-            response = sqs_client.create_queue(QueueName=queue_name)
+            sqs_client.create_queue(QueueName=queue_name)
         except Exception as e:
             if "QueueAlreadyExists" in str(e) or "already exists" in str(e):
                 pass  # Queue already exists, which is fine

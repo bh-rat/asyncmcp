@@ -1,12 +1,19 @@
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from mcp import ErrorData, JSONRPCError
 from mcp import types as types
 from mcp.shared.message import SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
-from mcp.types import DEFAULT_NEGOTIATED_VERSION, INVALID_REQUEST
+from mcp.types import (
+    DEFAULT_NEGOTIATED_VERSION,
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    INVALID_REQUEST,
+    PARSE_ERROR,
+)
+from pydantic import ValidationError
 
 # Session ID validation pattern (visible ASCII characters ranging from 0x21 to 0x7E)
 # Pattern ensures entire string contains only valid characters by using ^ and $ anchors
@@ -46,8 +53,140 @@ def create_jsonrpc_error_response(
     )
 
 
+def create_parse_error_response(error_message: str = "Parse error", request_id: Optional[str] = None) -> JSONRPCError:
+    """Create a parse error response (-32700)."""
+    return create_jsonrpc_error_response(error_message, PARSE_ERROR, request_id)
+
+
+def create_invalid_request_error_response(
+    error_message: str = "Invalid Request", request_id: Optional[str] = None
+) -> JSONRPCError:
+    """Create an invalid request error response (-32600)."""
+    return create_jsonrpc_error_response(error_message, INVALID_REQUEST, request_id)
+
+
+def create_invalid_params_error_response(
+    error_message: str = "Invalid params", request_id: Optional[str] = None
+) -> JSONRPCError:
+    """Create an invalid params error response (-32602)."""
+    return create_jsonrpc_error_response(error_message, INVALID_PARAMS, request_id)
+
+
+def create_internal_error_response(
+    error_message: str = "Internal error", request_id: Optional[str] = None
+) -> JSONRPCError:
+    """Create an internal error response (-32603)."""
+    return create_jsonrpc_error_response(error_message, INTERNAL_ERROR, request_id)
+
+
+def create_session_not_found_error_response(
+    session_id: Optional[str] = None, request_id: Optional[str] = None
+) -> JSONRPCError:
+    """Create a session not found error response."""
+    message = f"Session not found: {session_id}" if session_id else "Session not found"
+    return create_invalid_request_error_response(message, request_id)
+
+
+def create_session_terminated_error_response(
+    session_id: Optional[str] = None, request_id: Optional[str] = None
+) -> JSONRPCError:
+    """Create a session terminated error response."""
+    message = f"Session has been terminated: {session_id}" if session_id else "Session has been terminated"
+    return create_invalid_request_error_response(message, request_id)
+
+
+def create_protocol_version_error_response(
+    protocol_version: Optional[str] = None, request_id: Optional[str] = None
+) -> JSONRPCError:
+    """Create a protocol version error response."""
+    supported_versions = ", ".join(SUPPORTED_PROTOCOL_VERSIONS)
+    if protocol_version:
+        message = f"Unsupported protocol version: {protocol_version}. Supported versions: {supported_versions}"
+    else:
+        message = f"Missing protocol version. Supported versions: {supported_versions}"
+    return create_invalid_request_error_response(message, request_id)
+
+
+def create_session_id_error_response(
+    session_id: Optional[str] = None, request_id: Optional[str] = None
+) -> JSONRPCError:
+    """Create a session ID validation error response."""
+    if session_id:
+        message = f"Invalid session ID format: {session_id}"
+    else:
+        message = "Missing or invalid session ID"
+    return create_invalid_request_error_response(message, request_id)
+
+
+def validate_and_parse_message(message_body: str) -> Tuple[Optional[SessionMessage], Optional[JSONRPCError]]:
+    """
+    Validate and parse a message body into a SessionMessage.
+
+    Returns:
+        Tuple of (SessionMessage, None) on success or (None, JSONRPCError) on failure.
+
+    This follows the same validation pattern as streamable_http transport.
+    """
+    try:
+        # Parse JSON
+        try:
+            raw_message = json.loads(message_body)
+        except json.JSONDecodeError as e:
+            return None, create_parse_error_response(f"Parse error: {str(e)}")
+
+        # Validate JSONRPCMessage structure
+        try:
+            message = types.JSONRPCMessage.model_validate(raw_message)
+            return SessionMessage(message), None
+        except ValidationError as e:
+            return None, create_invalid_params_error_response(f"Validation error: {str(e)}")
+
+    except Exception as e:
+        return None, create_internal_error_response(f"Unexpected error: {str(e)}")
+
+
+def validate_message_attributes(
+    message_attrs: Dict[str, Any], require_session_id: bool = False, existing_session_id: Optional[str] = None
+) -> Optional[JSONRPCError]:
+    """
+    Validate message attributes (protocol version, session ID).
+
+    Args:
+        message_attrs: Message attributes dictionary
+        require_session_id: Whether session ID is required
+        existing_session_id: Expected session ID for validation
+
+    Returns:
+        JSONRPCError if validation fails, None if validation passes
+    """
+    # Validate protocol version
+    protocol_version = None
+    if "ProtocolVersion" in message_attrs:
+        protocol_version = message_attrs["ProtocolVersion"]["StringValue"]
+
+    if not validate_protocol_version(protocol_version):
+        return create_protocol_version_error_response(protocol_version)
+
+    # Validate session ID if present or required
+    session_id = None
+    if "SessionId" in message_attrs:
+        session_id = message_attrs["SessionId"]["StringValue"]
+
+    if require_session_id and not session_id:
+        return create_session_id_error_response()
+
+    if session_id and not validate_session_id(session_id):
+        return create_session_id_error_response(session_id)
+
+    # Validate session ID matches expected value
+    if existing_session_id and session_id and session_id != existing_session_id:
+        return create_session_not_found_error_response(session_id)
+
+    return None
+
+
 async def to_session_message(sqs_message: Dict[str, Any]) -> SessionMessage:
-    """Convert SQS message to SessionMessage."""
+    """Convert SQS message to SessionMessage with proper error handling."""
     try:
         body = sqs_message["Body"]
 
@@ -66,13 +205,14 @@ async def to_session_message(sqs_message: Dict[str, Any]) -> SessionMessage:
             # If body is already a dict, convert to JSON string first
             actual_message = json.dumps(body)
 
-        # Parse the JSON-RPC message
-        if isinstance(actual_message, str):
-            parsed = json.loads(actual_message)
-        else:
-            parsed = actual_message
+        # Use the new validation function
+        session_message, error = validate_and_parse_message(actual_message)
+        if error:
+            raise ValueError(f"Invalid JSON-RPC message: {error.error.message}")
 
-        message = types.JSONRPCMessage.model_validate(parsed)
-        return SessionMessage(message)
+        if session_message is None:
+            raise ValueError("Failed to parse session message")
+
+        return session_message
     except Exception as e:
         raise ValueError(f"Invalid JSON-RPC message: {e}")

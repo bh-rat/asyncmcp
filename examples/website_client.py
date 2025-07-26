@@ -207,10 +207,11 @@ async def interactive_mode(transport_type: str = TRANSPORT_SNS_SQS):
             async with anyio.create_task_group() as tg:
                 tg.start_soon(listen_for_messages, read_stream)
                 tg.start_soon(interactive_loop, write_stream)
-    except* KeyboardInterrupt:
-        print_colored("\n👋 Goodbye!", "yellow")
-    except* Exception as e:
-        print_colored(f"❌ Transport error: {e}", "red")
+    except (KeyboardInterrupt, Exception) as e:
+        if isinstance(e, KeyboardInterrupt):
+            print_colored("\n👋 Goodbye!", "yellow")
+        else:
+            print_colored(f"❌ Transport error: {e}", "red")
 
 
 if __name__ == "__main__":

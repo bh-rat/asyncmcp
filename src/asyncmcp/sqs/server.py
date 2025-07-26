@@ -6,7 +6,9 @@ from typing import Any, Optional
 import anyio
 import anyio.to_thread
 from anyio.streams.memory import MemoryObjectSendStream
+from mcp import JSONRPCError
 from mcp.shared.message import SessionMessage
+from mcp.types import JSONRPCMessage
 
 from asyncmcp.common.aws_queue_utils import create_common_server_message_attributes
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
@@ -53,6 +55,10 @@ class SqsTransport(ServerTransport):
 
     async def send_to_client_queue(self, session_message: SessionMessage) -> None:
         """Send a message to the client's response queue."""
+        if self._terminated:
+            logger.debug(f"Session {self.session_id} is terminated, skipping SQS send")
+            return
+
         if not self.response_queue_url:
             logger.warning(f"No response queue URL set for session {self.session_id}")
             return
@@ -73,6 +79,27 @@ class SqsTransport(ServerTransport):
         except Exception as e:
             logger.error(f"Error sending message to client queue {self.response_queue_url}: {e}")
             raise
+
+    async def send_error_to_client_queue(self, error_response: JSONRPCError) -> None:
+        """Send an error response to the client's response queue."""
+        if self._terminated:
+            logger.debug(f"Session {self.session_id} is terminated, skipping error send")
+            return
+
+        if not self.response_queue_url:
+            logger.warning(f"No response queue URL set for session {self.session_id}")
+            return
+
+        try:
+            # Create a SessionMessage from the error response
+            error_message = JSONRPCMessage(root=error_response)
+            error_session_message = SessionMessage(error_message)
+            await self.send_to_client_queue(error_session_message)
+            logger.debug(f"Sent error response to client queue: {error_response.error.message}")
+
+        except Exception as e:
+            logger.error(f"Error sending error response to client queue {self.response_queue_url}: {e}")
+            # Don't re-raise here to avoid error loops
 
 
 @asynccontextmanager

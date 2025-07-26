@@ -18,7 +18,7 @@ from starlette.responses import Response
 from asyncmcp.webhook.client import webhook_client
 from asyncmcp.webhook.manager import WebhookSessionManager
 from asyncmcp.webhook.server import WebhookTransport
-from asyncmcp.webhook.utils import SessionInfo
+from asyncmcp.webhook.utils import SessionInfo, WebhookClientConfig, WebhookServerConfig
 
 
 class TestWebhookIntegration:
@@ -166,8 +166,6 @@ class TestWebhookIntegration:
     async def test_multiple_clients_different_webhooks(self, mock_mcp_server):
         """Test multiple clients with different webhook URLs."""
         # Create configs for server and two clients
-        from asyncmcp.webhook.utils import WebhookClientConfig, WebhookServerConfig
-
         server_config = WebhookServerConfig(
             timeout_seconds=5.0,
         )
@@ -315,8 +313,8 @@ class TestWebhookIntegration:
 
         response = await session_manager._handle_client_request(mock_request)
 
-        # Should return error response
-        assert response.status_code == 500
+        # Should return parse error response (400 Bad Request for malformed JSON)
+        assert response.status_code == 400
         response_body = json.loads(response.body.decode())
         # Check JSON-RPC error response structure
         assert "error" in response_body

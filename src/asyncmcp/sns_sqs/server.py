@@ -8,7 +8,9 @@ from typing import Any, Optional
 
 import anyio.to_thread
 from anyio.streams.memory import MemoryObjectSendStream
+from mcp import JSONRPCError
 from mcp.shared.message import SessionMessage
+from mcp.types import JSONRPCMessage
 
 from asyncmcp.common.aws_queue_utils import create_common_server_message_attributes
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
@@ -59,6 +61,10 @@ class SnsSqsTransport(ServerTransport):
 
     async def send_to_client_topic(self, session_message: SessionMessage) -> None:
         """Write messages to SNS."""
+        if self._terminated:
+            logger.debug(f"Session {self.session_id} is terminated, skipping SNS send")
+            return
+
         if not self.client_topic_arn:
             logger.warning(f"No response topic arn set for session {self.session_id}")
             return
@@ -77,6 +83,27 @@ class SnsSqsTransport(ServerTransport):
         except Exception as e:
             logger.error(f"Error in sending message to topic {self.client_topic_arn}: {e}")
             raise
+
+    async def send_error_to_client_topic(self, error_response: JSONRPCError) -> None:
+        """Send an error response to the client's topic."""
+        if self._terminated:
+            logger.debug(f"Session {self.session_id} is terminated, skipping error send")
+            return
+
+        if not self.client_topic_arn:
+            logger.warning(f"No response topic arn set for session {self.session_id}")
+            return
+
+        try:
+            # Create a SessionMessage from the error response
+            error_message = JSONRPCMessage(root=error_response)
+            error_session_message = SessionMessage(error_message)
+            await self.send_to_client_topic(error_session_message)
+            logger.debug(f"Sent error response to client topic: {error_response.error.message}")
+
+        except Exception as e:
+            logger.error(f"Error sending error response to client topic {self.client_topic_arn}: {e}")
+            # Don't re-raise here to avoid error loops
 
 
 @asynccontextmanager
