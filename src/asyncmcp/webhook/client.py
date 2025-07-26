@@ -48,8 +48,6 @@ class WebhookClient:
         try:
             body = await request.body()
             session_message = await parse_webhook_request(body)
-
-            # Extract session ID from headers and update state
             received_session_id = request.headers.get("X-Session-ID")
             if received_session_id:
                 await self.state.set_session_id_if_none(received_session_id)
@@ -97,16 +95,15 @@ class WebhookClient:
             json_message = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
 
             if isinstance(message_root, types.JSONRPCRequest) and message_root.method == "initialize":
-                # For initialize requests, verify webhook URL is provided in _meta field
                 message_dict = session_message.message.model_dump(by_alias=True, exclude_none=True)
-                if "params" in message_dict and "_meta" in message_dict["params"] and "webhookUrl" in message_dict["params"]["_meta"]:
-                    # Webhook URL already provided - use as is
+                params = message_dict.get("params", {})
+                meta = params.get("_meta", {})
+                if "params" in message_dict and "_meta" in params and "webhookUrl" in meta:
+                    # Webhook URL provided - use as is
                     json_message = json.dumps(message_dict)
                 else:
-                    # External app should set the full webhook URL in _meta
-                    # For backwards compatibility, log a warning but continue
-                    logger.warning("webhookUrl not provided in initialize request _meta field. External app should set this.")
-                    json_message = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                    # External app must set the full webhook URL in _meta
+                    raise ValueError("webhookUrl is required in initialize request _meta field")
 
             headers = await create_http_headers(
                 session_message, session_id=self.state.session_id, client_id=self.state.client_id

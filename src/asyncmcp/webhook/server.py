@@ -6,15 +6,13 @@ The server receives HTTP POST requests from clients and sends responses via webh
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional
 
 import httpx
 from anyio.streams.memory import MemoryObjectSendStream
-
 from mcp.shared.message import SessionMessage
 
-from asyncmcp.common.server import ServerTransport
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
+from asyncmcp.common.server import ServerTransport
 from asyncmcp.webhook.utils import WebhookServerConfig, send_webhook_response
 
 logger = logging.getLogger(__name__)
@@ -27,9 +25,9 @@ class WebhookTransport(ServerTransport):
         self,
         config: WebhookServerConfig,
         http_client: httpx.AsyncClient,
-        session_id: Optional[str],
-        webhook_url: Optional[str] = None,
-        outgoing_message_sender: Optional[MemoryObjectSendStream[OutgoingMessageEvent]] = None,
+        session_id: str | None,
+        webhook_url: str | None = None,
+        outgoing_message_sender: MemoryObjectSendStream[OutgoingMessageEvent] | None = None,
     ):
         super().__init__(config, session_id, outgoing_message_sender)
         self.http_client = http_client
@@ -78,8 +76,11 @@ class WebhookTransport(ServerTransport):
         try:
             # Add logging to track what's being sent to the MCP server
             message_root = session_message.message.root
+            method = getattr(message_root, 'method', 'N/A')
+            msg_id = getattr(message_root, 'id', 'N/A')
             logger.info(
-                f"[WebhookTransport.send_message] Sending to MCP server: method={getattr(message_root, 'method', 'N/A')} id={getattr(message_root, 'id', 'N/A')} session_id={self.session_id}"
+                f"[WebhookTransport.send_message] Sending to MCP server: "
+                f"method={method} id={msg_id} session_id={self.session_id}"
             )
 
             # Log the full message for debugging
@@ -87,7 +88,7 @@ class WebhookTransport(ServerTransport):
             logger.info(f"[WebhookTransport.send_message] Full message: {json_message}")
 
             await self._read_stream_writer.send(session_message)
-            logger.info(f"[WebhookTransport.send_message] Successfully sent message to MCP server")
+            logger.info("[WebhookTransport.send_message] Successfully sent message to MCP server")
         except Exception as e:
             logger.warning(f"Error sending message to session {self.session_id}: {e}")
 

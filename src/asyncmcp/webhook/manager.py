@@ -5,29 +5,32 @@ Handles HTTP requests, session management, and message routing for webhook trans
 """
 
 import logging
-import threading
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Optional
+from typing import Any
 
 import anyio
 import httpx
+import mcp.types as types
 import orjson
-from anyio.abc import TaskStatus
+from anyio.abc import TaskGroup, TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from mcp.server.lowlevel.server import Server as MCPServer
+from mcp.shared.message import SessionMessage
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
-import uvicorn
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-import mcp.types as types
-from mcp.shared.message import SessionMessage
-from mcp.server.lowlevel.server import Server as MCPServer
-
-from asyncmcp.webhook.server import WebhookTransport
-from asyncmcp.webhook.utils import WebhookServerConfig, SessionInfo, parse_webhook_request, \
-    extract_webhook_url_from_meta, generate_session_id
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
+from asyncmcp.webhook.server import WebhookTransport
+from asyncmcp.webhook.utils import (
+    SessionInfo,
+    WebhookServerConfig,
+    extract_webhook_url_from_meta,
+    generate_session_id,
+    parse_webhook_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,46 +42,37 @@ class WebhookSessionManager:
         self,
         app: MCPServer,
         config: WebhookServerConfig,
-        server_host: str = "0.0.0.0",
-        server_port: int = 8000,
         server_path: str = "/mcp/request",
         stateless: bool = False,
     ):
         self.app = app
         self.config = config
-        self.server_host = server_host
-        self.server_port = server_port
         self.server_path = server_path
         self.stateless = stateless
 
         # Session management
         self._session_lock = anyio.Lock()
-        self._transport_instances: Dict[str, WebhookTransport] = {}
-        self._sessions: Dict[str, SessionInfo] = {}  # session_id -> SessionInfo
-        self._client_sessions: Dict[str, str] = {}  # client_id -> session_id
-        self._request_sessions: Dict[str, str] = {}  # request_id -> session_id
+        self._transport_instances: dict[str, WebhookTransport] = {}
+        self._sessions: dict[str, SessionInfo] = {}  # session_id -> SessionInfo
+        self._client_sessions: dict[str, str] = {}  # client_id -> session_id
+        self._request_sessions: dict[str, str] = {}  # request_id -> session_id
 
         # Message routing
-        self._outgoing_message_sender: Optional[MemoryObjectSendStream[OutgoingMessageEvent]] = None
-        self._outgoing_message_receiver: Optional[MemoryObjectReceiveStream[OutgoingMessageEvent]] = None
+        self._outgoing_message_sender: MemoryObjectSendStream[OutgoingMessageEvent] | None = None
+        self._outgoing_message_receiver: MemoryObjectReceiveStream[OutgoingMessageEvent] | None = None
 
         # HTTP components
-        self.http_client: Optional[httpx.AsyncClient] = None
-        self.http_server: Optional[Any] = None
+        self.http_client: httpx.AsyncClient | None = None
 
         # Task management
-        self._task_group: Optional[anyio.abc.TaskGroup] = None
-        self._run_lock = threading.Lock()
+        self._task_group: TaskGroup | None = None
+        self._run_lock = anyio.Lock()
         self._has_started = False
-
-        # Memory management
-        self._max_sessions = 1000  # Limit concurrent sessions
-        self._session_cleanup_interval = 300  # 5 minutes
 
     @asynccontextmanager
     async def run(self):
-        """Run the webhook session manager with HTTP server."""
-        with self._run_lock:
+        """Run the webhook session manager."""
+        async with self._run_lock:
             if self._has_started:
                 raise RuntimeError("WebhookSessionManager.run() can only be called once per instance.")
             self._has_started = True
@@ -94,34 +88,28 @@ class WebhookSessionManager:
 
         async with anyio.create_task_group() as tg:
             self._task_group = tg
-            tg.start_soon(self._start_http_server)
             tg.start_soon(self._event_driven_message_sender)
 
             logger.debug("Webhook session manager started")
 
             try:
-                # Wait for HTTP server to be ready
-                await anyio.sleep(0.1)
                 yield
             finally:
                 logger.debug("Webhook session manager shutting down")
-                tg.cancel_scope.cancel()
-                await self._shutdown_all_sessions()
+                await self.shutdown()
 
-                if self.http_client:
-                    await self.http_client.aclose()
+    async def handle_request(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        """Handle ASGI request."""
+        request = Request(scope, receive)
+        response = await self._handle_client_request(request)
+        await response(scope, receive, send)
 
-                if self.http_server:
-                    self.http_server.should_exit = True
-
-                if self._outgoing_message_sender:
-                    await self._outgoing_message_sender.aclose()
-                if self._outgoing_message_receiver:
-                    await self._outgoing_message_receiver.aclose()
-
-                self._task_group = None
-
-    async def handle_client_request(self, request: Request) -> Response:
+    async def _handle_client_request(self, request: Request) -> Response:
         """Handle incoming client HTTP request."""
         try:
             body = await request.body()
@@ -168,7 +156,7 @@ class WebhookSessionManager:
             )
 
     async def _handle_initialize_request(
-        self, session_message: SessionMessage, client_id: str, session_id: Optional[str]
+        self, session_message: SessionMessage, client_id: str, session_id: str | None
     ) -> Response:
         """Handle initialize request and create new session."""
         webhook_url = extract_webhook_url_from_meta(session_message.message)
@@ -180,14 +168,6 @@ class WebhookSessionManager:
             )
 
         async with self._session_lock:
-            # Check session limits to prevent memory exhaustion
-            if len(self._sessions) >= self._max_sessions:
-                return Response(
-                    content=orjson.dumps({"error": "Maximum session limit reached"}),
-                    media_type="application/json",
-                    status_code=503,
-                )
-
             new_session_id = session_id or generate_session_id()
             session_info = SessionInfo(
                 session_id=new_session_id, client_id=client_id, webhook_url=webhook_url, state="init_pending"
@@ -195,12 +175,6 @@ class WebhookSessionManager:
             self._sessions[new_session_id] = session_info
             self._client_sessions[client_id] = new_session_id
             logger.info(f"[_handle_initialize_request] Created session: {session_info}")
-            # Note: metadata assignment commented out due to type compatibility issues
-            # session_message.metadata = {
-            #     "session_id": new_session_id,
-            #     "client_id": client_id,
-            #     "webhook_url": webhook_url,
-            # }
             if isinstance(session_message.message.root, types.JSONRPCRequest):
                 self._request_sessions[str(session_message.message.root.id)] = new_session_id
             if not self.http_client:
@@ -269,7 +243,8 @@ class WebhookSessionManager:
         session_info = self._sessions[session_id]
         if session_info.state != "init_pending":
             logger.warning(
-                f"[_handle_initialized_notification] Session {session_id} is not in init_pending state: {session_info.state}"
+                f"[_handle_initialized_notification] Session {session_id} "
+                f"is not in init_pending state: {session_info.state}"
             )
             return Response(
                 content=orjson.dumps({"error": "Session not in init_pending state"}),
@@ -279,12 +254,6 @@ class WebhookSessionManager:
 
         if session_id in self._transport_instances:
             transport = self._transport_instances[session_id]
-            # Note: metadata assignment commented out due to type compatibility issues
-            # session_message.metadata = {
-            #     "session_id": session_id,
-            #     "client_id": session_info.client_id,
-            #     "webhook_url": session_info.webhook_url,
-            # }
             await transport.send_message(session_message)
             logger.debug(f"Forwarded initialized notification to MCP server for session {session_id}")
         else:
@@ -305,39 +274,26 @@ class WebhookSessionManager:
         )
 
     async def _handle_regular_request(
-        self, session_message: SessionMessage, client_id: str, session_id: Optional[str]
+        self, session_message: SessionMessage, client_id: str, session_id: str | None
     ) -> Response:
-        logger.info(f"[_handle_regular_request] client_id={client_id} session_id={session_id}")
-        target_session_id = None
-        session_info = None
         if session_id and session_id in self._sessions:
             target_session_id = session_id
-            session_info = self._sessions[session_id]
         elif client_id and client_id in self._client_sessions:
             target_session_id = self._client_sessions[client_id]
-            session_info = self._sessions[target_session_id]
         else:
             logger.warning(
-                f"[_handle_regular_request] No active session found for client_id={client_id} session_id={session_id}"
+                f"No active session found for client_id={client_id} session_id={session_id}"
             )
             return Response(
                 content=orjson.dumps({"error": "No active session found"}),
                 media_type="application/json",
                 status_code=400,
             )
-        logger.info(f"[_handle_regular_request] Found session: {session_info}")
-        # Note: metadata assignment commented out due to type compatibility issues
-        # session_message.metadata = {
-        #     "session_id": target_session_id,
-        #     "client_id": session_info.client_id,
-        #     "webhook_url": session_info.webhook_url,
-        # }
         if isinstance(session_message.message.root, types.JSONRPCRequest):
             self._request_sessions[str(session_message.message.root.id)] = target_session_id
         if target_session_id in self._transport_instances:
             transport = self._transport_instances[target_session_id]
             await transport.send_message(session_message)
-            logger.info(f"[_handle_regular_request] Sent message to transport for session_id={target_session_id}")
         else:
             logger.error(f"[_handle_regular_request] Session transport not found for session_id={target_session_id}")
             return Response(
@@ -351,30 +307,39 @@ class WebhookSessionManager:
             status_code=200,
         )
 
-    async def _start_http_server(self) -> None:
-        """Start the HTTP server to receive client requests."""
+    def asgi_app(self) -> ASGIApp:
+        """Create ASGI application."""
+        async def endpoint_handler(request: Request) -> Response:
+            return await self._handle_client_request(request)
+        
         routes = [
-            Route(self.server_path, self.handle_client_request, methods=["POST"]),
+            Route(self.server_path, endpoint_handler, methods=["POST"]),
         ]
+        return Starlette(routes=routes)
 
-        app = Starlette(routes=routes)
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Direct ASGI callable for mounting as middleware or sub-app."""
+        await self.handle_request(scope, receive, send)
 
-        config = uvicorn.Config(
-            app=app,
-            host=self.server_host,
-            port=self.server_port,
-            log_level="warning",
-            access_log=False,  # Disable access logs to reduce noise
-        )
+    async def shutdown(self) -> None:
+        """Shutdown the session manager and clean up resources."""
+        if self._task_group:
+            self._task_group.cancel_scope.cancel()
 
-        self.http_server = uvicorn.Server(config)
-        try:
-            await self.http_server.serve()
-        except Exception as e:
-            logger.error(f"HTTP server crashed: {e}")
-            # Ensure all sessions are cleaned up if server crashes
-            await self._shutdown_all_sessions()
-            raise
+        await self._shutdown_all_sessions()
+
+        if self.http_client:
+            await self.http_client.aclose()
+            self.http_client = None
+
+        if self._outgoing_message_sender:
+            await self._outgoing_message_sender.aclose()
+            self._outgoing_message_sender = None
+        if self._outgoing_message_receiver:
+            await self._outgoing_message_receiver.aclose()
+            self._outgoing_message_receiver = None
+
+        self._task_group = None
 
     async def _event_driven_message_sender(self) -> None:
         """Background task to send outgoing messages from sessions back to clients via webhooks."""
@@ -402,7 +367,7 @@ class WebhookSessionManager:
 
                         # Clean up request-to-session mapping after successful response
                         message_root = message_event.message.message.root
-                        if isinstance(message_root, (types.JSONRPCResponse, types.JSONRPCError)):
+                        if isinstance(message_root, types.JSONRPCResponse | types.JSONRPCError):
                             request_id = str(message_root.id)
                             self._request_sessions.pop(request_id, None)
 
@@ -438,7 +403,7 @@ class WebhookSessionManager:
                 return True
             return False
 
-    def get_all_sessions(self) -> Dict[str, dict]:
+    def get_all_sessions(self) -> dict[str, dict[str, Any]]:
         """Get information about all active sessions."""
         return {
             session_id: {

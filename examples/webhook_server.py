@@ -4,6 +4,7 @@ Sample MCP Server using webhook transport
 """
 
 import anyio
+import uvicorn
 
 import click
 import mcp.types as types
@@ -88,8 +89,6 @@ def main(server_port, webhook_port, stateless) -> int:
         session_manager = WebhookSessionManager(
             app,
             config,
-            server_host="localhost",
-            server_port=server_port,
             server_path="/mcp/request",
             stateless=stateless,
         )
@@ -98,8 +97,16 @@ def main(server_port, webhook_port, stateless) -> int:
         print_colored(f"🔗 Server listening on http://localhost:{server_port}/mcp/request", "blue")
 
         async with session_manager.run():
-            # Keep the server running
-            await anyio.sleep_forever()
+            # Start uvicorn server with the ASGI app
+            asgi_app = session_manager.asgi_app()
+            config = uvicorn.Config(
+                app=asgi_app,
+                host="localhost",
+                port=server_port,
+                log_level="info",
+            )
+            server = uvicorn.Server(config)
+            await server.serve()
 
     anyio.run(arun)
     return 0

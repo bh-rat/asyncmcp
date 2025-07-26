@@ -156,10 +156,10 @@ class TestWebhookIntegration:
 
                 async def run_mock_session_manager():
                     # Mock the session manager components
-                    with patch.object(session_manager, "_start_http_server"):
-                        with patch.object(session_manager, "_event_driven_message_sender"):
-                            async with session_manager.run():
-                                await anyio.sleep(0.5)
+                    # No longer need to patch _start_http_server as it doesn't exist
+                    with patch.object(session_manager, "_event_driven_message_sender"):
+                        async with session_manager.run():
+                            await anyio.sleep(0.5)
 
                 tg.start_soon(run_mock_session_manager)
                 tg.start_soon(run_mock_client)
@@ -245,10 +245,10 @@ class TestWebhookIntegration:
                     session_manager.http_client = server_http
 
                     with patch.object(session_manager, "_handle_initialize_request", side_effect=mock_handle_init):
-                        with patch.object(session_manager, "_start_http_server"):
-                            with patch.object(session_manager, "_event_driven_message_sender"):
-                                async with session_manager.run():
-                                    await anyio.sleep(0.5)
+                        # No longer need to patch _start_http_server as it doesn't exist
+                        with patch.object(session_manager, "_event_driven_message_sender"):
+                            async with session_manager.run():
+                                await anyio.sleep(0.5)
 
                 tg.start_soon(run_mock_session_manager)
                 tg.start_soon(run_client, client1_config, "client-1")
@@ -313,7 +313,7 @@ class TestWebhookIntegration:
         mock_request.body = AsyncMock(return_value=b"invalid json")
         mock_request.headers = Headers({"X-Client-ID": "test-client"})
 
-        response = await session_manager.handle_client_request(mock_request)
+        response = await session_manager._handle_client_request(mock_request)
 
         # Should return error response
         assert response.status_code == 500
@@ -333,7 +333,7 @@ class TestWebhookIntegration:
         )
         mock_request.headers = Headers({})  # No X-Client-ID header
 
-        response = await session_manager.handle_client_request(mock_request)
+        response = await session_manager._handle_client_request(mock_request)
 
         # Should return error for missing client ID
         assert response.status_code == 400
