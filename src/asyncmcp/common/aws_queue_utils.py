@@ -51,8 +51,7 @@ def create_common_client_message_attributes(
     return attrs
 
 
-async def to_session_message(sqs_message: Dict[str, Any]) -> SessionMessage:
-    """Convert SQS message to SessionMessage."""
+async def get_parsed_message(sqs_message: Dict[str, Any]) -> Dict[str, Any]:
     try:
         body = sqs_message["Body"]
 
@@ -77,6 +76,15 @@ async def to_session_message(sqs_message: Dict[str, Any]) -> SessionMessage:
         else:
             parsed = actual_message
 
+        return parsed
+    except Exception as e:
+        raise ValueError(f"Invalid JSON-RPC message: {e}")
+
+
+async def to_session_message(sqs_message: Dict[str, Any]) -> SessionMessage:
+    """Convert SQS message to SessionMessage."""
+    try:
+        parsed = await get_parsed_message(sqs_message)
         message = types.JSONRPCMessage.model_validate(parsed)
         return SessionMessage(message)
     except Exception as e:
@@ -136,25 +144,7 @@ async def sqs_reader(
 
                             # First check if this is an initialize response
                             try:
-                                body = message["Body"]
-                                # Handle SNS notification format
-                                if isinstance(body, str):
-                                    try:
-                                        parsed_body = json.loads(body)
-                                        if "Message" in parsed_body and "Type" in parsed_body:
-                                            actual_message = parsed_body["Message"]
-                                        else:
-                                            actual_message = body
-                                    except json.JSONDecodeError:
-                                        actual_message = body
-                                else:
-                                    actual_message = json.dumps(body)
-
-                                # Parse the JSON-RPC message to check if it's an initialize response
-                                if isinstance(actual_message, str):
-                                    parsed = json.loads(actual_message)
-                                else:
-                                    parsed = actual_message
+                                parsed = await get_parsed_message(message)
 
                                 # Only extract session ID if this is an initialize response
                                 is_initialize_response = isinstance(
