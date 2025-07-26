@@ -2,20 +2,18 @@
 Comprehensive tests for webhook server transport module.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import httpx
-from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCNotification
+import pytest
 from mcp.shared.message import SessionMessage
-from asyncmcp.webhook.server import WebhookTransport
-from asyncmcp.webhook.manager import WebhookSessionManager
-from asyncmcp.webhook.utils import send_webhook_response, SessionInfo
-from asyncmcp.common.outgoing_event import OutgoingMessageEvent
+from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest
 
-from tests.webhook.shared_fixtures import mock_http_client, sample_jsonrpc_request, sample_jsonrpc_initialize_request, \
-    sample_jsonrpc_response, server_transport_config, mock_mcp_server
+from asyncmcp.common.outgoing_event import OutgoingMessageEvent
+from asyncmcp.webhook.manager import WebhookSessionManager
+from asyncmcp.webhook.server import WebhookTransport
+from asyncmcp.webhook.utils import SessionInfo, send_webhook_response
 
 
 @pytest.fixture

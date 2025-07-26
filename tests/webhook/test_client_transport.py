@@ -2,23 +2,19 @@
 Comprehensive tests for webhook client transport module.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import httpx
+import pytest
 from mcp.shared.message import SessionMessage
 
-from asyncmcp.webhook.client import webhook_client, WebhookClient
+from asyncmcp.common.client_state import ClientState
+from asyncmcp.webhook.client import WebhookClient, webhook_client
 from asyncmcp.webhook.utils import (
-    WebhookClientConfig,
     create_http_headers,
     parse_webhook_request,
 )
-from asyncmcp.common.client_state import ClientState
-
-from tests.webhook.shared_fixtures import mock_http_client, sample_jsonrpc_request, sample_jsonrpc_initialize_request, \
-    sample_jsonrpc_response, sample_webhook_request_body, client_transport_config, webhook_url
 
 
 @pytest.fixture
@@ -43,9 +39,9 @@ class TestWebhookClient:
         assert client.server_url == "http://localhost:8000/mcp/request"
         assert client.http_client is None
         # webhook_server no longer exists in refactored version
-        assert hasattr(client, 'read_stream_writer')
-        assert hasattr(client, 'read_stream')
-        assert hasattr(client, 'write_stream')
+        assert hasattr(client, "read_stream_writer")
+        assert hasattr(client, "read_stream")
+        assert hasattr(client, "write_stream")
 
     @pytest.mark.anyio
     async def test_handle_webhook_response_success(self, transport_config, sample_webhook_request_body, webhook_url):
@@ -209,6 +205,7 @@ class TestWebhookClient:
 
         # Mock streams
         from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+
         mock_read_stream = MagicMock(spec=MemoryObjectReceiveStream)
         mock_write_stream = MagicMock(spec=MemoryObjectSendStream)
         client.read_stream = mock_read_stream

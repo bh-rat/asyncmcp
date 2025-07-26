@@ -1,19 +1,17 @@
-from typing import Optional, Any, Dict
+import json
+import logging
+import time
+from typing import Any, Dict, Optional
 
 import anyio
 import anyio.lowlevel
 import anyio.to_thread
-import logging
-import json
-import time
-
 import mcp.types as types
 from anyio.streams.memory import MemoryObjectSendStream
-from pydantic_core import ValidationError
 from mcp.shared.message import SessionMessage
+from pydantic_core import ValidationError
 
 from asyncmcp.common.client_state import ClientState
-
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +29,10 @@ def create_common_client_message_attributes(
 
     message_root = session_message.message.root
     if isinstance(message_root, types.JSONRPCRequest):
-        attrs.update(
-            {
-                "RequestId": {"DataType": "String", "StringValue": str(message_root.id)},
-                "Method": {"DataType": "String", "StringValue": message_root.method},
-            }
-        )
+        attrs.update({
+            "RequestId": {"DataType": "String", "StringValue": str(message_root.id)},
+            "Method": {"DataType": "String", "StringValue": message_root.method},
+        })
     elif isinstance(message_root, types.JSONRPCNotification):
         attrs["Method"] = {"DataType": "String", "StringValue": message_root.method}
 

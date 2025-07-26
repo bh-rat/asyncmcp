@@ -1,7 +1,6 @@
 import logging
-
-from typing import Protocol, Optional, Union
 from contextlib import AbstractAsyncContextManager
+from typing import Optional, Protocol, Union
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.shared.message import SessionMessage

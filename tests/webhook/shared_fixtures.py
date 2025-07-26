@@ -3,13 +3,13 @@ Shared fixtures for webhook transport tests.
 """
 
 import json
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
-
-from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, JSONRPCNotification
 from mcp.server.lowlevel import Server
+from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 
-from asyncmcp.webhook.utils import WebhookServerConfig, WebhookClientConfig
+from asyncmcp.webhook.utils import WebhookClientConfig, WebhookServerConfig
 
 
 @pytest.fixture
@@ -66,19 +66,17 @@ def sample_webhook_request_body():
 @pytest.fixture
 def sample_initialize_webhook_request():
     """Sample initialize webhook request body."""
-    return json.dumps(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "test-client", "version": "1.0"},
-                "_meta": {"webhookUrl": "http://localhost:8001/webhook/response"},
-            },
-        }
-    ).encode("utf-8")
+    return json.dumps({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "test-client", "version": "1.0"},
+            "_meta": {"webhookUrl": "http://localhost:8001/webhook/response"},
+        },
+    }).encode("utf-8")
 
 
 @pytest.fixture

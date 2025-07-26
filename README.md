@@ -310,6 +310,9 @@ cd asyncmcp
 uv sync
 ```
 
+Code formatting and linting is enforced via pre-commit hooks using ruff.
+The hooks automatically format code and block commits with unfixable linting issues in `src/`.
+
 ---
 
 ## License

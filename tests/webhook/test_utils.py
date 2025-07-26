@@ -2,27 +2,22 @@
 Tests for webhook utility functions.
 """
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock
-import json
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
-import mcp.types as types
+import pytest
 from mcp.shared.message import SessionMessage
 
 from asyncmcp.webhook.utils import (
-    WebhookServerConfig,
-    WebhookClientConfig,
     SessionInfo,
+    WebhookClientConfig,
+    WebhookServerConfig,
     create_http_headers,
-    parse_webhook_request,
-    send_webhook_response,
     extract_webhook_url_from_meta,
     generate_session_id,
+    parse_webhook_request,
+    send_webhook_response,
 )
-
-from tests.webhook.shared_fixtures import sample_jsonrpc_request, sample_jsonrpc_initialize_request, \
-    sample_jsonrpc_response, sample_jsonrpc_notification, sample_webhook_request_body
 
 
 class TestWebhookServerConfig:

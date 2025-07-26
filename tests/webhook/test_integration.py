@@ -2,25 +2,23 @@
 Comprehensive integration tests for webhook transport.
 """
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import httpx
+import orjson
+import pytest
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
+from starlette.datastructures import Headers
+from starlette.requests import Request
+from starlette.responses import Response
 
 from asyncmcp.webhook.client import webhook_client
 from asyncmcp.webhook.manager import WebhookSessionManager
-from asyncmcp.webhook.utils import SessionInfo
 from asyncmcp.webhook.server import WebhookTransport
-from starlette.responses import Response
-import orjson
-from starlette.requests import Request
-from starlette.datastructures import Headers
-
-from tests.webhook.shared_fixtures import client_server_config, mock_mcp_server
+from asyncmcp.webhook.utils import SessionInfo
 
 
 class TestWebhookIntegration:
@@ -142,17 +140,17 @@ class TestWebhookIntegration:
                     # Use refactored webhook client (no start_webhook_server to mock)
                     webhook_path = "/webhook/response"
                     async with webhook_client(client_config, webhook_path) as (read_stream, write_stream, client):
-                            # Send tools/list request
-                            tools_request = JSONRPCMessage(
-                                root=JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={})
-                            )
-                            await write_stream.send(SessionMessage(tools_request))
+                        # Send tools/list request
+                        tools_request = JSONRPCMessage(
+                            root=JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={})
+                        )
+                        await write_stream.send(SessionMessage(tools_request))
 
-                            # Wait for response (with timeout)
-                            with anyio.move_on_after(0.3):
-                                response = await read_stream.receive()
-                                if isinstance(response, SessionMessage) and hasattr(response.message.root, "result"):
-                                    assert "tools" in response.message.root.result
+                        # Wait for response (with timeout)
+                        with anyio.move_on_after(0.3):
+                            response = await read_stream.receive()
+                            if isinstance(response, SessionMessage) and hasattr(response.message.root, "result"):
+                                assert "tools" in response.message.root.result
 
                 async def run_mock_session_manager():
                     # Mock the session manager components
@@ -168,7 +166,7 @@ class TestWebhookIntegration:
     async def test_multiple_clients_different_webhooks(self, mock_mcp_server):
         """Test multiple clients with different webhook URLs."""
         # Create configs for server and two clients
-        from asyncmcp.webhook.utils import WebhookServerConfig, WebhookClientConfig
+        from asyncmcp.webhook.utils import WebhookClientConfig, WebhookServerConfig
 
         server_config = WebhookServerConfig(
             timeout_seconds=5.0,
@@ -222,24 +220,25 @@ class TestWebhookIntegration:
                     # Use refactored webhook client (no start_webhook_server to mock)
                     webhook_path = "/webhook/response"
                     async with webhook_client(client_config, webhook_path) as (read_stream, write_stream, client):
-                            # Send initialize request
-                            init_request = JSONRPCMessage(
-                                root=JSONRPCRequest(
-                                    jsonrpc="2.0",
-                                    id=1,
-                                    method="initialize",
-                                    params={
-                                        "protocolVersion": "2024-11-05",
-                                        "capabilities": {},
-                                        "clientInfo": {"name": client_id, "version": "1.0"},
-                                        "_meta": {
-                                            "webhookUrl": f"http://localhost:{8001 if client_id == 'client-1' else 8002}/webhook/response"
-                                        },
+                        # Send initialize request
+                        init_request = JSONRPCMessage(
+                            root=JSONRPCRequest(
+                                jsonrpc="2.0",
+                                id=1,
+                                method="initialize",
+                                params={
+                                    "protocolVersion": "2024-11-05",
+                                    "capabilities": {},
+                                    "clientInfo": {"name": client_id, "version": "1.0"},
+                                    "_meta": {
+                                        "webhookUrl": f"http://localhost:{8001 if client_id == 'client-1' else 8002}"
+                                        f"/webhook/response"
                                     },
-                                )
+                                },
                             )
-                            await write_stream.send(SessionMessage(init_request))
-                            await anyio.sleep(0.1)
+                        )
+                        await write_stream.send(SessionMessage(init_request))
+                        await anyio.sleep(0.1)
 
                 async def run_mock_session_manager():
                     session_manager.http_client = server_http
