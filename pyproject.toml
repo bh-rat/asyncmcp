@@ -129,7 +129,6 @@ select = [
     "E501",   # line-too-long
     "F841",   # unused-variable
     "E402",   # module-import-not-at-top-of-file
-    "PLC0415",# import-outside-top-level
     "Q",      # flake8-quotes
 ]
 
