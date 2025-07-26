@@ -8,7 +8,7 @@ import anyio.to_thread
 from anyio.streams.memory import MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
 
-from asyncmcp.common.aws_queue_utils import create_common_client_message_attributes
+from asyncmcp.common.aws_queue_utils import create_common_server_message_attributes
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 from asyncmcp.common.server import ServerTransport
 from asyncmcp.sqs.utils import SqsServerConfig
@@ -37,9 +37,13 @@ class SqsTransport(ServerTransport):
         """Set the client-specific response queue URL."""
         self.response_queue_url = response_queue_url
 
-    async def _create_sqs_message_attributes(self, session_message: SessionMessage) -> dict:
+    async def _create_sqs_message_attributes(
+        self, session_message: SessionMessage, protocol_version: Optional[str] = None
+    ) -> dict:
         """Create SQS message attributes for outgoing messages."""
-        attrs = create_common_client_message_attributes(session_message, session_id=self.session_id, client_id=None)
+        attrs = create_common_server_message_attributes(
+            session_message=session_message, session_id=self.session_id, protocol_version=protocol_version
+        )
 
         if self.config.message_attributes:
             for key, value in self.config.message_attributes.items():

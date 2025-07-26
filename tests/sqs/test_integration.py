@@ -39,17 +39,19 @@ class TestSQSIntegrationWithDynamicQueues:
                         {
                             "MessageId": "init-msg-1",
                             "ReceiptHandle": "init-handle-1",
-                            "Body": json.dumps({
-                                "jsonrpc": "2.0",
-                                "id": 1,
-                                "method": "initialize",
-                                "params": {
-                                    "protocolVersion": "2024-11-05",
-                                    "capabilities": {},
-                                    "clientInfo": {"name": "test-client", "version": "1.0"},
-                                    "response_queue_url": client_response_queue,
-                                },
-                            }),
+                            "Body": json.dumps(
+                                {
+                                    "jsonrpc": "2.0",
+                                    "id": 1,
+                                    "method": "initialize",
+                                    "params": {
+                                        "protocolVersion": "2024-11-05",
+                                        "capabilities": {},
+                                        "clientInfo": {"name": "test-client", "version": "1.0"},
+                                        "response_queue_url": client_response_queue,
+                                    },
+                                }
+                            ),
                             "MessageAttributes": {"Method": {"DataType": "String", "StringValue": "initialize"}},
                         }
                     ]
@@ -69,15 +71,17 @@ class TestSQSIntegrationWithDynamicQueues:
                         {
                             "MessageId": "init-response-1",
                             "ReceiptHandle": "init-response-handle-1",
-                            "Body": json.dumps({
-                                "jsonrpc": "2.0",
-                                "id": 1,
-                                "result": {
-                                    "protocolVersion": "2024-11-05",
-                                    "capabilities": {},
-                                    "serverInfo": {"name": "test-server", "version": "1.0"},
-                                },
-                            }),
+                            "Body": json.dumps(
+                                {
+                                    "jsonrpc": "2.0",
+                                    "id": 1,
+                                    "result": {
+                                        "protocolVersion": "2024-11-05",
+                                        "capabilities": {},
+                                        "serverInfo": {"name": "test-server", "version": "1.0"},
+                                    },
+                                }
+                            ),
                             "MessageAttributes": {},
                         }
                     ]
@@ -165,11 +169,13 @@ class TestSQSIntegrationWithDynamicQueues:
             {
                 "MessageId": "tools-response-1",
                 "ReceiptHandle": "tools-response-handle-1",
-                "Body": json.dumps({
-                    "jsonrpc": "2.0",
-                    "id": 2,
-                    "result": {"tools": [{"name": "test-tool", "description": "A test tool"}]},
-                }),
+                "Body": json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "result": {"tools": [{"name": "test-tool", "description": "A test tool"}]},
+                    }
+                ),
                 "MessageAttributes": {},
             }
         ]
@@ -270,33 +276,37 @@ class TestSQSIntegrationWithDynamicQueues:
             {
                 "MessageId": "init1",
                 "ReceiptHandle": "init1-handle",
-                "Body": json.dumps({
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "initialize",
-                    "params": {
-                        "protocolVersion": "2024-11-05",
-                        "capabilities": {},
-                        "clientInfo": {"name": "client-1", "version": "1.0"},
-                        "response_queue_url": client1_response_queue,
-                    },
-                }),
+                "Body": json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2024-11-05",
+                            "capabilities": {},
+                            "clientInfo": {"name": "client-1", "version": "1.0"},
+                            "response_queue_url": client1_response_queue,
+                        },
+                    }
+                ),
                 "MessageAttributes": {"ClientId": {"DataType": "String", "StringValue": "client-1"}},
             },
             {
                 "MessageId": "init2",
                 "ReceiptHandle": "init2-handle",
-                "Body": json.dumps({
-                    "jsonrpc": "2.0",
-                    "id": 2,
-                    "method": "initialize",
-                    "params": {
-                        "protocolVersion": "2024-11-05",
-                        "capabilities": {},
-                        "clientInfo": {"name": "client-2", "version": "1.0"},
-                        "response_queue_url": client2_response_queue,
-                    },
-                }),
+                "Body": json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2024-11-05",
+                            "capabilities": {},
+                            "clientInfo": {"name": "client-2", "version": "1.0"},
+                            "response_queue_url": client2_response_queue,
+                        },
+                    }
+                ),
                 "MessageAttributes": {"ClientId": {"DataType": "String", "StringValue": "client-2"}},
             },
         ]
@@ -340,17 +350,19 @@ class TestSQSIntegrationWithDynamicQueues:
         invalid_init_message = {
             "MessageId": "invalid-init-1",
             "ReceiptHandle": "invalid-init-handle-1",
-            "Body": json.dumps({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {"name": "invalid-client", "version": "1.0"},
-                    # Missing response_queue_url
-                },
-            }),
+            "Body": json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "invalid-client", "version": "1.0"},
+                        # Missing response_queue_url
+                    },
+                }
+            ),
             "MessageAttributes": {},
         }
 
@@ -383,17 +395,19 @@ class TestSQSIntegrationWithDynamicQueues:
         init_message = {
             "MessageId": "cleanup-init-1",
             "ReceiptHandle": "cleanup-init-handle-1",
-            "Body": json.dumps({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {"name": "cleanup-client", "version": "1.0"},
-                    "response_queue_url": "http://localhost:4566/000000000000/cleanup-responses",
-                },
-            }),
+            "Body": json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "cleanup-client", "version": "1.0"},
+                        "response_queue_url": "http://localhost:4566/000000000000/cleanup-responses",
+                    },
+                }
+            ),
             "MessageAttributes": {},
         }
 

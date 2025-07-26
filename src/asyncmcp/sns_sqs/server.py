@@ -10,7 +10,7 @@ import anyio.to_thread
 from anyio.streams.memory import MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
 
-from asyncmcp.common.aws_queue_utils import create_common_client_message_attributes
+from asyncmcp.common.aws_queue_utils import create_common_server_message_attributes
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 from asyncmcp.common.server import ServerTransport
 from asyncmcp.sns_sqs.utils import SnsSqsServerConfig
@@ -41,10 +41,15 @@ class SnsSqsTransport(ServerTransport):
 
     @staticmethod
     async def _create_sns_message_attributes(
-        session_message: SessionMessage, config: SnsSqsServerConfig, session_id: Optional[str]
+        session_message: SessionMessage,
+        config: SnsSqsServerConfig,
+        session_id: Optional[str],
+        protocol_version: Optional[str] = None,
     ) -> dict:
         """Create SNS message attributes for server-side messages."""
-        attrs = create_common_client_message_attributes(session_message, session_id=session_id, client_id=None)
+        attrs = create_common_server_message_attributes(
+            session_message=session_message, session_id=session_id, protocol_version=protocol_version
+        )
 
         if config.message_attributes:
             for key, value in config.message_attributes.items():

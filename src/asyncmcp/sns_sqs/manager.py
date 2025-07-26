@@ -15,7 +15,15 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.shared.message import SessionMessage
 
-from asyncmcp.common.aws_queue_utils import delete_sqs_message, to_session_message
+from asyncmcp.common.aws_queue_utils import (
+    delete_sqs_message,
+)
+from asyncmcp.common.utils import (
+    is_initialize_request,
+    to_session_message,
+    validate_protocol_version,
+    validate_session_id,
+)
 from asyncmcp.sns_sqs.server import OutgoingMessageEvent, SnsSqsTransport
 from asyncmcp.sns_sqs.utils import SnsSqsServerConfig
 
@@ -121,31 +129,46 @@ class SnsSqsSessionManager:
     async def _process_single_message(self, sqs_message: Dict[str, Any]) -> None:
         try:
             session_message = await to_session_message(sqs_message)
-            message_root = session_message.message.root
 
-            # Extract SessionId from SQS message attributes or SNS notification
+            # Extract SessionId and ProtocolVersion from SQS message attributes or SNS notification
             session_id = None
+            protocol_version = None
             message_attrs = sqs_message.get("MessageAttributes", {})
 
             if "SessionId" in message_attrs:
                 session_id = message_attrs["SessionId"]["StringValue"]
-            else:
-                # Check if this is an SNS notification and extract attributes from there
+            if "ProtocolVersion" in message_attrs:
+                protocol_version = message_attrs["ProtocolVersion"]["StringValue"]
+
+            # Check if this is an SNS notification and extract attributes from there
+            if not session_id or not protocol_version:
                 try:
                     body = json.loads(sqs_message["Body"])
                     if "MessageAttributes" in body:
                         sns_attrs = body["MessageAttributes"]
-                        if "SessionId" in sns_attrs:
+                        if not session_id and "SessionId" in sns_attrs:
                             session_id = sns_attrs["SessionId"]["Value"]
+                        if not protocol_version and "ProtocolVersion" in sns_attrs:
+                            protocol_version = sns_attrs["ProtocolVersion"]["Value"]
                 except (json.JSONDecodeError, KeyError):
                     pass
 
-            is_initialize_request = (
-                isinstance(message_root, types.JSONRPCRequest) and message_root.method == "initialize"
-            )
+            # Validate protocol version
+            if not validate_protocol_version(protocol_version):
+                logger.warning(f"Invalid protocol version: {protocol_version}")
+                await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, sqs_message["ReceiptHandle"])
+                return
 
-            if is_initialize_request:
-                await self._handle_initialize_request(session_message, session_id, sqs_message)
+            # Validate session ID if present
+            if session_id and not validate_session_id(session_id):
+                logger.warning(f"Invalid session ID format: {session_id}")
+                await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, sqs_message["ReceiptHandle"])
+                return
+
+            is_init_request = is_initialize_request(session_message)
+
+            if is_init_request:
+                await self._handle_initialize_request(session_message, session_id, sqs_message, protocol_version)
             else:
                 if session_id and session_id in self._transport_instances:
                     transport = self._transport_instances[session_id]
@@ -160,7 +183,11 @@ class SnsSqsSessionManager:
             await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, sqs_message["ReceiptHandle"])
 
     async def _handle_initialize_request(
-        self, session_message: SessionMessage, session_id: str | None, sqs_message: Dict[str, Any]
+        self,
+        session_message: SessionMessage,
+        session_id: str | None,
+        sqs_message: Dict[str, Any],
+        protocol_version: Optional[str] = None,
     ) -> None:
         if session_id and session_id in self._transport_instances:
             transport = self._transport_instances[session_id]
@@ -182,6 +209,11 @@ class SnsSqsSessionManager:
             if not session_id:
                 session_id = uuid4().hex
 
+            # Validate the generated session ID
+            if not validate_session_id(session_id):
+                logger.error(f"Generated invalid session ID: {session_id}")
+                session_id = uuid4().hex
+
             transport = SnsSqsTransport(
                 config=self.config,
                 sqs_client=self.sqs_client,
@@ -197,6 +229,8 @@ class SnsSqsSessionManager:
                 try:
                     async with transport.connect() as (read_stream, write_stream):
                         task_status.started()
+                        logger.debug(f"Started SNS+SQS session: {session_id} with protocol version: {protocol_version}")
+
                         await self.app.run(
                             read_stream,
                             write_stream,
@@ -208,6 +242,7 @@ class SnsSqsSessionManager:
                 finally:
                     async with self._session_lock:
                         if session_id in self._transport_instances:
+                            logger.debug(f"Cleaning up session: {session_id}")
                             del self._transport_instances[session_id]
 
             assert self._task_group is not None

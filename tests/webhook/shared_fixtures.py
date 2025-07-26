@@ -66,17 +66,19 @@ def sample_webhook_request_body():
 @pytest.fixture
 def sample_initialize_webhook_request():
     """Sample initialize webhook request body."""
-    return json.dumps({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "test-client", "version": "1.0"},
-            "_meta": {"webhookUrl": "http://localhost:8001/webhook/response"},
-        },
-    }).encode("utf-8")
+    return json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "test-client", "version": "1.0"},
+                "_meta": {"webhookUrl": "http://localhost:8001/webhook/response"},
+            },
+        }
+    ).encode("utf-8")
 
 
 @pytest.fixture

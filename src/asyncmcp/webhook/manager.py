@@ -23,6 +23,12 @@ from starlette.routing import Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
+from asyncmcp.common.utils import (
+    create_jsonrpc_error_response,
+    is_initialize_request,
+    validate_protocol_version,
+    validate_session_id,
+)
 from asyncmcp.webhook.server import WebhookTransport
 from asyncmcp.webhook.utils import (
     SessionInfo,
@@ -112,32 +118,79 @@ class WebhookSessionManager:
     async def _handle_client_request(self, request: Request) -> Response:
         """Handle incoming client HTTP request."""
         try:
+            # Check for DELETE request (session termination)
+            if request.method == "DELETE":
+                return await self._handle_delete_request(request)
+
+            # Only handle POST requests for regular MCP communication
+            if request.method != "POST":
+                error_response = create_jsonrpc_error_response("Method Not Allowed")
+                return Response(
+                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                    media_type="application/json",
+                    status_code=405,
+                    headers={"Allow": "POST, DELETE"},
+                )
+
             body = await request.body()
             session_message = await parse_webhook_request(body)
 
             # Extract client and session info from headers
             client_id = request.headers.get("X-Client-ID")
             session_id = request.headers.get("X-Session-ID")
+            protocol_version = request.headers.get("X-Protocol-Version")
 
             if not client_id:
+                error_response = create_jsonrpc_error_response("Missing X-Client-ID header")
                 return Response(
-                    content=orjson.dumps({"error": "Missing X-Client-ID header"}),
+                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
                     media_type="application/json",
                     status_code=400,
                 )
 
+            # Validate protocol version
+            if not validate_protocol_version(protocol_version):
+                error_response = create_jsonrpc_error_response(f"Invalid protocol version: {protocol_version}")
+                return Response(
+                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                    media_type="application/json",
+                    status_code=400,
+                )
+
+            # Validate session ID if present
+            if session_id and not validate_session_id(session_id):
+                error_response = create_jsonrpc_error_response(f"Invalid session ID format: {session_id}")
+                return Response(
+                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                    media_type="application/json",
+                    status_code=400,
+                )
+
+            # Check if session is terminated
+            if session_id and session_id in self._transport_instances:
+                transport = self._transport_instances[session_id]
+                if transport.is_terminated:
+                    error_response = create_jsonrpc_error_response("Session has been terminated")
+                    return Response(
+                        content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                        media_type="application/json",
+                        status_code=404,
+                    )
+
             # Handle initialization request
-            message_root = session_message.message.root
-            if isinstance(message_root, types.JSONRPCRequest) and message_root.method == "initialize":
-                return await self._handle_initialize_request(session_message, client_id, session_id)
+            if is_initialize_request(session_message):
+                return await self._handle_initialize_request(session_message, client_id, session_id, protocol_version)
 
             elif (
-                isinstance(message_root, types.JSONRPCNotification)
-                and message_root.method == "notifications/initialized"
+                isinstance(session_message.message.root, types.JSONRPCNotification)
+                and session_message.message.root.method == "notifications/initialized"
             ):
                 if not session_id:
+                    error_response = create_jsonrpc_error_response(
+                        "Missing X-Session-ID header for initialized notification"
+                    )
                     return Response(
-                        content=orjson.dumps({"error": "Missing X-Session-ID header for initialized notification"}),
+                        content=error_response.model_dump_json(by_alias=True, exclude_none=True),
                         media_type="application/json",
                         status_code=400,
                     )
@@ -149,14 +202,56 @@ class WebhookSessionManager:
 
         except Exception as e:
             logger.error(f"Error handling client request: {e}")
+            error_response = create_jsonrpc_error_response(f"Internal server error: {str(e)}")
             return Response(
-                content=orjson.dumps({"error": str(e)}),
+                content=error_response.model_dump_json(by_alias=True, exclude_none=True),
                 media_type="application/json",
                 status_code=500,
             )
 
+    async def _handle_delete_request(self, request: Request) -> Response:
+        """Handle DELETE request for session termination (like StreamableHTTP)."""
+        session_id = request.headers.get("X-Session-ID")
+
+        if not session_id:
+            error_response = create_jsonrpc_error_response("Missing X-Session-ID header")
+            return Response(
+                content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                media_type="application/json",
+                status_code=400,
+            )
+
+        # Validate session ID format
+        if not validate_session_id(session_id):
+            error_response = create_jsonrpc_error_response(f"Invalid session ID format: {session_id}")
+            return Response(
+                content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                media_type="application/json",
+                status_code=400,
+            )
+
+        # Terminate the session
+        success = await self.terminate_session(session_id)
+        if success:
+            return Response(
+                content=orjson.dumps({"status": "terminated"}),
+                media_type="application/json",
+                status_code=200,
+            )
+        else:
+            error_response = create_jsonrpc_error_response("Session not found")
+            return Response(
+                content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                media_type="application/json",
+                status_code=404,
+            )
+
     async def _handle_initialize_request(
-        self, session_message: SessionMessage, client_id: str, session_id: str | None
+        self,
+        session_message: SessionMessage,
+        client_id: str,
+        session_id: str | None,
+        protocol_version: str | None = None,
     ) -> Response:
         """Handle initialize request and create new session."""
         webhook_url = extract_webhook_url_from_meta(session_message.message)
@@ -169,6 +264,16 @@ class WebhookSessionManager:
 
         async with self._session_lock:
             new_session_id = session_id or generate_session_id()
+
+            # Validate the session ID (either provided or generated)
+            if not validate_session_id(new_session_id):
+                error_response = create_jsonrpc_error_response(f"Invalid session ID format: {new_session_id}")
+                return Response(
+                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                    media_type="application/json",
+                    status_code=400,
+                )
+
             session_info = SessionInfo(
                 session_id=new_session_id, client_id=client_id, webhook_url=webhook_url, state="init_pending"
             )
@@ -304,7 +409,7 @@ class WebhookSessionManager:
             return await self._handle_client_request(request)
 
         routes = [
-            Route(self.server_path, endpoint_handler, methods=["POST"]),
+            Route(self.server_path, endpoint_handler, methods=["POST", "DELETE"]),
         ]
         return Starlette(routes=routes)
 

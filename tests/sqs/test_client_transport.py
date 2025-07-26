@@ -8,7 +8,7 @@ import anyio
 import pytest
 from mcp.shared.message import SessionMessage
 
-from asyncmcp.common.aws_queue_utils import to_session_message
+from asyncmcp.common.utils import to_session_message
 from asyncmcp.sqs.client import _create_sqs_message_attributes, sqs_client
 
 # Updated imports to use correct modules

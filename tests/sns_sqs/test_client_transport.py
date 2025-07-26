@@ -12,7 +12,8 @@ from mcp.types import JSONRPCMessage, JSONRPCRequest
 from asyncmcp import SnsSqsClientConfig
 
 # Updated imports to use correct common modules
-from asyncmcp.common.aws_queue_utils import delete_sqs_message, to_session_message
+from asyncmcp.common.aws_queue_utils import delete_sqs_message
+from asyncmcp.common.utils import to_session_message
 from asyncmcp.sns_sqs.client import _create_sns_message_attributes, sns_sqs_client
 
 

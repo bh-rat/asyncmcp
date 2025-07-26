@@ -12,6 +12,7 @@ from mcp.shared.message import SessionMessage
 from pydantic_core import ValidationError
 
 from asyncmcp.common.client_state import ClientState
+from asyncmcp.common.utils import to_session_message
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ def create_common_client_message_attributes(
     session_message: SessionMessage,
     client_id: Optional[str],
     session_id: Optional[str],
+    protocol_version: Optional[str] = None,
 ):
     """Creates common message attributes."""
     attrs = {
@@ -29,10 +31,12 @@ def create_common_client_message_attributes(
 
     message_root = session_message.message.root
     if isinstance(message_root, types.JSONRPCRequest):
-        attrs.update({
-            "RequestId": {"DataType": "String", "StringValue": str(message_root.id)},
-            "Method": {"DataType": "String", "StringValue": message_root.method},
-        })
+        attrs.update(
+            {
+                "RequestId": {"DataType": "String", "StringValue": str(message_root.id)},
+                "Method": {"DataType": "String", "StringValue": message_root.method},
+            }
+        )
     elif isinstance(message_root, types.JSONRPCNotification):
         attrs["Method"] = {"DataType": "String", "StringValue": message_root.method}
 
@@ -42,39 +46,41 @@ def create_common_client_message_attributes(
     if client_id:
         attrs["ClientId"] = {"DataType": "String", "StringValue": client_id}
 
+    if protocol_version:
+        attrs["ProtocolVersion"] = {"DataType": "String", "StringValue": protocol_version}
+
     return attrs
 
 
-async def to_session_message(sqs_message: Dict[str, Any]) -> SessionMessage:
-    """Convert SQS message to SessionMessage."""
-    try:
-        body = sqs_message["Body"]
+def create_common_server_message_attributes(
+    session_message: SessionMessage,
+    session_id: Optional[str],
+    protocol_version: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Creates common message attributes for server-side messages."""
+    attrs = {
+        "MessageType": {"DataType": "String", "StringValue": "jsonrpc"},
+        "Timestamp": {"DataType": "Number", "StringValue": str(int(time.time()))},
+    }
 
-        # Handle SNS notification format
-        if isinstance(body, str):
-            try:
-                parsed_body = json.loads(body)
-                if "Message" in parsed_body and "Type" in parsed_body:
-                    # This is an SNS notification, extract the actual message
-                    actual_message = parsed_body["Message"]
-                else:
-                    actual_message = body
-            except json.JSONDecodeError:
-                actual_message = body
-        else:
-            # If body is already a dict, convert to JSON string first
-            actual_message = json.dumps(body)
+    message_root = session_message.message.root
+    if isinstance(message_root, types.JSONRPCRequest):
+        attrs.update(
+            {
+                "RequestId": {"DataType": "String", "StringValue": str(message_root.id)},
+                "Method": {"DataType": "String", "StringValue": message_root.method},
+            }
+        )
+    elif isinstance(message_root, types.JSONRPCNotification):
+        attrs["Method"] = {"DataType": "String", "StringValue": message_root.method}
 
-        # Parse the JSON-RPC message
-        if isinstance(actual_message, str):
-            parsed = json.loads(actual_message)
-        else:
-            parsed = actual_message
+    if session_id:
+        attrs["SessionId"] = {"DataType": "String", "StringValue": session_id}
 
-        message = types.JSONRPCMessage.model_validate(parsed)
-        return SessionMessage(message)
-    except Exception as e:
-        raise ValueError(f"Invalid JSON-RPC message: {e}")
+    if protocol_version:
+        attrs["ProtocolVersion"] = {"DataType": "String", "StringValue": protocol_version}
+
+    return attrs
 
 
 async def process_single_message(
