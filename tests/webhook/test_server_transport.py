@@ -194,15 +194,12 @@ class TestWebhookSessionManager:
         """Test session manager run lifecycle."""
         manager = WebhookSessionManager(app=mock_mcp_server, config=transport_config)
 
-        with patch("asyncmcp.webhook.manager.WebhookSessionManager._start_http_server") as mock_start_server:
-            mock_start_server.return_value = AsyncMock()
+        with anyio.move_on_after(0.1):  # Short timeout for test
+            async with manager.run():
+                assert manager._task_group is not None
 
-            with anyio.move_on_after(0.1):  # Short timeout for test
-                async with manager.run():
-                    assert manager._task_group is not None
-
-            # After context exits, task group should be None
-            assert manager._task_group is None
+        # After context exits, task group should be None
+        assert manager._task_group is None
 
     @pytest.mark.anyio
     async def test_handle_initialize_request(self, transport_config, mock_mcp_server):
@@ -332,6 +329,7 @@ class TestWebhookSessionManager:
         assert session_data["state"] == "initialized"
 
     @pytest.mark.anyio
+    @pytest.mark.skip(reason="removed the limit on sessions for now")
     async def test_session_limit_exceeded(self, transport_config, mock_mcp_server):
         """Test that session creation fails when max sessions exceeded."""
         manager = WebhookSessionManager(app=mock_mcp_server, config=transport_config)
