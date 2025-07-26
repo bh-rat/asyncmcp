@@ -122,20 +122,13 @@ line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-# Selected rules: F401 (unused imports), TID252 (relative imports), 
-# I (import sorting), E501 (line too long), E302 (expected 2 blank lines), 
-# E231 (missing whitespace after comma), E203 (whitespace before colon), 
-# F841 (unused variable), Q (quotes)
 select = [
     "F401",   # unused-import
-    "TID252", # relative-imports  
+    "TID252", # relative-imports (blocks relative imports, enforces absolute imports)
     "I001",   # unsorted-imports
     "E501",   # line-too-long
-    "E302",   # expected-2-blank-lines
-    "E231",   # missing-whitespace-after-comma
-    "E203",   # whitespace-before-punctuation
     "F841",   # unused-variable
-    "Q",      # flake8-quotes (includes Q000)
+    "Q",      # flake8-quotes
 ]
 
 [tool.ruff.lint.per-file-ignores]
