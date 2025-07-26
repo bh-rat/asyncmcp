@@ -10,6 +10,7 @@ import anyio.lowlevel
 import anyio.to_thread
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
+from mcp.types import JSONRPCMessage
 
 from asyncmcp.common.aws_queue_utils import create_common_client_message_attributes
 from asyncmcp.common.aws_queue_utils import sqs_reader as common_sqs_reader
@@ -82,6 +83,9 @@ class SqsClientTransport(BaseClientTransport):
             session_id_source = sqs_message_attrs["SessionId"]["StringValue"]
 
         # Let base class handle protocol version and session management
+        if not isinstance(session_message.message, JSONRPCMessage):
+            raise TypeError("session_message.message must be of type JSON-RPC message")
+
         await super().handle_received_message(session_message.message, session_id_source)
 
 

@@ -20,7 +20,7 @@ def create_common_client_message_attributes(
     session_message: SessionMessage,
     client_id: Optional[str],
     session_id: Optional[str],
-    protocol_version: Optional[str],
+    protocol_version: Optional[str] = None,
 ):
     """Creates common message attributes."""
     attrs = {

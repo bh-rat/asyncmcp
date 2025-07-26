@@ -96,7 +96,6 @@ class TestWebhookClient:
     @pytest.mark.anyio
     async def test_send_request_regular(self, transport_config, sample_jsonrpc_request, webhook_url):
         """Test sending regular request."""
-        state = ClientState(client_id="test-client", session_id="test-session")
         webhook_path = "/webhook/response"
         client = WebhookClient(transport_config, webhook_path)
 
@@ -276,7 +275,3 @@ class TestWebhookUtilities:
         """Test parsing invalid webhook request body."""
         with pytest.raises(Exception):
             await parse_webhook_request(b"invalid json")
-
-
-# Note: ClientState tests have been removed as they should be in a separate test file
-# for the common client_state module.
