@@ -353,7 +353,7 @@ class WebhookSessionManager:
 
         session_info = self._sessions[session_id]
         if session_info.state != "init_pending":
-            logger.warning(f"Session {session_id} " f"is not in init_pending state: {session_info.state}")
+            logger.warning(f"Session {session_id} is not in init_pending state: {session_info.state}")
             return Response(
                 content=orjson.dumps({"error": "Session not in init_pending state"}),
                 media_type="application/json",
