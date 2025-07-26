@@ -8,16 +8,15 @@ from uuid import uuid4
 import anyio
 import anyio.lowlevel
 import anyio.to_thread
+import mcp.types as types
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-
-import mcp.types as types
-from mcp.shared.message import SessionMessage
 from mcp.server.lowlevel.server import Server as MCPServer
+from mcp.shared.message import SessionMessage
 
-from asyncmcp.sqs.server import SqsTransport, OutgoingMessageEvent
+from asyncmcp.common.aws_queue_utils import delete_sqs_message, to_session_message
+from asyncmcp.sqs.server import OutgoingMessageEvent, SqsTransport
 from asyncmcp.sqs.utils import SqsServerConfig
-from asyncmcp.common.aws_queue_utils import to_session_message, delete_sqs_message
 
 logger = logging.getLogger(__name__)
 

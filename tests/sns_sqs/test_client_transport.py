@@ -2,17 +2,18 @@
 Tests for SNS/SQS client transport functionality.
 """
 
-import pytest
 from unittest.mock import patch
 
 import anyio
+import pytest
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest
 
-# Updated imports to use correct common modules
-from asyncmcp.common.aws_queue_utils import to_session_message, delete_sqs_message
-from asyncmcp.sns_sqs.client import sns_sqs_client, _create_sns_message_attributes
 from asyncmcp import SnsSqsClientConfig
+
+# Updated imports to use correct common modules
+from asyncmcp.common.aws_queue_utils import delete_sqs_message, to_session_message
+from asyncmcp.sns_sqs.client import _create_sns_message_attributes, sns_sqs_client
 
 
 # Test classes for processing SQS messages
@@ -32,7 +33,12 @@ class TestProcessSQSMessage:
         sns_wrapped_message = {
             "MessageId": "sns-123",
             "ReceiptHandle": "sns-handle-123",
-            "Body": '{"Type": "Notification", "Message": "{\\"jsonrpc\\": \\"2.0\\", \\"id\\": 1, \\"method\\": \\"test\\", \\"params\\": {}}"}',
+            "Body": '{"Type": "Notification", "Message": "{'
+            '\\"jsonrpc\\": \\"2.0\\", '
+            '\\"id\\": 1, '
+            '\\"method\\": \\"test\\", '
+            '\\"params\\": {}'
+            '}"}',
             "MessageAttributes": {},
         }
 

@@ -6,13 +6,12 @@ from typing import Any, Optional
 import anyio
 import anyio.to_thread
 from anyio.streams.memory import MemoryObjectSendStream
-
 from mcp.shared.message import SessionMessage
 
+from asyncmcp.common.aws_queue_utils import create_common_client_message_attributes
+from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 from asyncmcp.common.server import ServerTransport
 from asyncmcp.sqs.utils import SqsServerConfig
-from asyncmcp.common.outgoing_event import OutgoingMessageEvent
-from asyncmcp.common.aws_queue_utils import create_common_client_message_attributes
 
 logger = logging.getLogger(__name__)
 

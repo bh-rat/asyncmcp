@@ -1,17 +1,18 @@
 """Configuration and shared fixtures for webhook transport tests."""
 
 from tests.webhook.shared_fixtures import (
-    mock_http_client,
-    sample_jsonrpc_request,
-    sample_jsonrpc_initialize_request,
-    sample_jsonrpc_response,
-    sample_jsonrpc_notification,
-    sample_webhook_request_body,
-    sample_initialize_webhook_request,
-    client_transport_config,
-    server_transport_config,
     client_server_config,
+    client_transport_config,
+    mock_http_client,
     mock_mcp_server,
+    sample_initialize_webhook_request,
+    sample_jsonrpc_initialize_request,
+    sample_jsonrpc_notification,
+    sample_jsonrpc_request,
+    sample_jsonrpc_response,
+    sample_webhook_request_body,
+    server_transport_config,
+    webhook_url,
 )
 
 __all__ = [
@@ -26,12 +27,12 @@ __all__ = [
     "server_transport_config",
     "client_server_config",
     "mock_mcp_server",
+    "webhook_url",
 ]
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-import anyio
-from unittest.mock import MagicMock, AsyncMock, patch
-from typing import Dict, Any
 
 # anyio backend configuration moved to top-level conftest.py
 

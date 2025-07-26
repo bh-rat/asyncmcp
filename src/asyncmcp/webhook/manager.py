@@ -273,9 +273,7 @@ class WebhookSessionManager:
         elif client_id and client_id in self._client_sessions:
             target_session_id = self._client_sessions[client_id]
         else:
-            logger.warning(
-                f"No active session found for client_id={client_id} session_id={session_id}"
-            )
+            logger.warning(f"No active session found for client_id={client_id} session_id={session_id}")
             return Response(
                 content=orjson.dumps({"error": "No active session found"}),
                 media_type="application/json",
@@ -301,9 +299,10 @@ class WebhookSessionManager:
 
     def asgi_app(self) -> ASGIApp:
         """Create ASGI application."""
+
         async def endpoint_handler(request: Request) -> Response:
             return await self._handle_client_request(request)
-        
+
         routes = [
             Route(self.server_path, endpoint_handler, methods=["POST"]),
         ]

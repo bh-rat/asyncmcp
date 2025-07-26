@@ -75,10 +75,10 @@ class WebhookClient:
     async def get_webhook_callback(self):
         """Get callback function for external app integration."""
         return self.handle_webhook_response
-        
-    def get_streams(self) -> tuple[
-        MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]
-    ]:
+
+    def get_streams(
+        self,
+    ) -> tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]:
         """Get direct access to read/write streams for advanced users."""
         if not self.read_stream or not self.write_stream:
             raise RuntimeError("Streams not initialized. Use within webhook_client context manager.")
@@ -155,13 +155,13 @@ async def webhook_client(
     None,
 ]:
     """Create a webhook client transport.
-    
+
     Returns:
         A tuple of (read_stream, write_stream, client) where:
         - read_stream: Receives messages from the server
-        - write_stream: Sends messages to the server  
+        - write_stream: Sends messages to the server
         - client: WebhookClient instance with get_webhook_callback() method
-        
+
     Example:
         async with webhook_client(config, "/webhook/mcp") as (read, write, client):
             # Get callback for your web app

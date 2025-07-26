@@ -3,17 +3,17 @@ SNS/SQS server transport implementation.
 """
 
 import logging
-from typing import Any, Optional
 from contextlib import asynccontextmanager
+from typing import Any, Optional
 
 import anyio.to_thread
 from anyio.streams.memory import MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
 
 from asyncmcp.common.aws_queue_utils import create_common_client_message_attributes
+from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 from asyncmcp.common.server import ServerTransport
 from asyncmcp.sns_sqs.utils import SnsSqsServerConfig
-from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 
 logger = logging.getLogger(__name__)
 

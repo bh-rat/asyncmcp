@@ -2,20 +2,16 @@
 Comprehensive anyio fixture tests for SQS server transport module.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import anyio
+import pytest
 from mcp.shared.message import SessionMessage
 
-from asyncmcp.sqs.utils import SqsServerConfig
-from asyncmcp.sqs.server import SqsTransport
-from asyncmcp.sqs.manager import SqsSessionManager
 from asyncmcp.common.aws_queue_utils import to_session_message
-
-from tests.sqs.shared_fixtures import mock_sqs_client, sample_sqs_message, sample_initialize_sqs_message, \
-    sample_jsonrpc_request, sample_jsonrpc_notification, sample_jsonrpc_response, server_transport_config, \
-    mock_mcp_server
+from asyncmcp.sqs.manager import SqsSessionManager
+from asyncmcp.sqs.server import SqsTransport
+from asyncmcp.sqs.utils import SqsServerConfig
 
 
 @pytest.fixture

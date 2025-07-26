@@ -50,6 +50,7 @@ required-version = ">=0.7.2"
 dev = [
     "localstack>=4.5.0",
     "mypy>=1.16.1",
+    "pre-commit>=4.0.1",
     "pyright>=1.1.391",
     "pytest>=8.3.4",
     "pytest-timeout>=2.4.0",
@@ -116,16 +117,23 @@ venvPath = "."
 venv = ".venv"
 strict = ["src/asyncmcp/**/*.py"]
 
-[tool.ruff.lint]
-select = ["C4", "E", "F", "I", "PERF", "UP"]
-ignore = ["PERF203"]
-
 [tool.ruff]
 line-length = 120
 target-version = "py310"
 
+[tool.ruff.lint]
+select = [
+    "F401",   # unused-import
+    "TID252", # relative-imports (blocks relative imports, enforces absolute imports)
+    "I001",   # unsorted-imports
+    "E501",   # line-too-long
+    "F841",   # unused-variable
+    "Q",      # flake8-quotes
+]
+
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py files
+"tests/**/*.py" = ["F841"]  # Allow unused variables in tests (non-blocking)
 
 [tool.uv.workspace]
 members = ["examples/servers/*"]

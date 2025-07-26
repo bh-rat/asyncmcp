@@ -2,10 +2,12 @@
 Shared fixtures for SNS/SQS tests.
 """
 
-import pytest
 from unittest.mock import MagicMock
-from asyncmcp.sns_sqs.utils import SnsSqsServerConfig, SnsSqsClientConfig
+
+import pytest
 from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest
+
+from asyncmcp.sns_sqs.utils import SnsSqsClientConfig, SnsSqsServerConfig
 
 
 @pytest.fixture
