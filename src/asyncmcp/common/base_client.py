@@ -57,7 +57,6 @@ class BaseClientTransport:
                 # Parse the result as InitializeResult for type safety
                 init_result = InitializeResult.model_validate(message.root.result)
                 self.protocol_version = str(init_result.protocolVersion)
-                logger.info(f"Negotiated protocol version: {self.protocol_version}")
             except Exception as exc:
                 logger.warning(f"Failed to parse initialization response as InitializeResult: {exc}")
                 logger.warning(f"Raw result: {message.root.result}")
@@ -65,17 +64,9 @@ class BaseClientTransport:
     async def _maybe_extract_session_id_from_initialize_response(
         self, message: JSONRPCMessage, session_id_source: Optional[str] = None
     ) -> None:
-        """
-        Extract and store session ID from initialize response only.
-
-        Args:
-            message: The JSON-RPC message
-            session_id_source: Optional session ID from transport-specific source (headers, attributes, etc.)
-        """
-        # Only set session ID if this is an initialize response
+        """Extract and store session ID from initialize response only."""
         if self._is_initialize_response(message) and session_id_source:
             await self.client_state.set_session_id_if_none(session_id_source)
-            logger.info(f"Received session ID from initialize response: {self.client_state.session_id}")
 
     def _create_jsonrpc_error_response(
         self, request_id: RequestId, error_code: int, error_message: str
@@ -105,17 +96,9 @@ class BaseClientTransport:
         )
 
     async def handle_received_message(self, message: JSONRPCMessage, session_id_source: Optional[str] = None) -> None:
-        """
-        Handle a received message for session management and protocol version extraction.
-
-        Args:
-            message: The received JSON-RPC message
-            session_id_source: Optional session ID from transport-specific source
-        """
-        # Extract protocol version from initialize response
+        """Handle a received message for session management and protocol version extraction."""
         if self._is_initialize_response(message):
             self._maybe_extract_protocol_version_from_message(message)
-            # Only set session ID from initialize response
             await self._maybe_extract_session_id_from_initialize_response(message, session_id_source)
 
     def get_protocol_version(self) -> Optional[str]:
