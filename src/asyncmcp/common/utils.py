@@ -7,7 +7,6 @@ from mcp import types as types
 from mcp.shared.message import SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
-    DEFAULT_NEGOTIATED_VERSION,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
@@ -23,7 +22,8 @@ SESSION_ID_PATTERN = re.compile(r"^[\x21-\x7E]+$")
 def validate_protocol_version(protocol_version: Optional[str]) -> bool:
     """Validate protocol version against supported versions."""
     if protocol_version is None:
-        protocol_version = DEFAULT_NEGOTIATED_VERSION
+        # this signifies default version
+        return True
 
     return protocol_version in SUPPORTED_PROTOCOL_VERSIONS
 
@@ -119,22 +119,13 @@ def create_session_id_error_response(
 
 
 def validate_and_parse_message(message_body: str) -> Tuple[Optional[SessionMessage], Optional[JSONRPCError]]:
-    """
-    Validate and parse a message body into a SessionMessage.
-
-    Returns:
-        Tuple of (SessionMessage, None) on success or (None, JSONRPCError) on failure.
-
-    This follows the same validation pattern as streamable_http transport.
-    """
+    """Validate and parse a message body into a SessionMessage."""
     try:
-        # Parse JSON
         try:
             raw_message = json.loads(message_body)
         except json.JSONDecodeError as e:
             return None, create_parse_error_response(f"Parse error: {str(e)}")
 
-        # Validate JSONRPCMessage structure
         try:
             message = types.JSONRPCMessage.model_validate(raw_message)
             return SessionMessage(message), None
@@ -148,18 +139,7 @@ def validate_and_parse_message(message_body: str) -> Tuple[Optional[SessionMessa
 def validate_message_attributes(
     message_attrs: Dict[str, Any], require_session_id: bool = False, existing_session_id: Optional[str] = None
 ) -> Optional[JSONRPCError]:
-    """
-    Validate message attributes (protocol version, session ID).
-
-    Args:
-        message_attrs: Message attributes dictionary
-        require_session_id: Whether session ID is required
-        existing_session_id: Expected session ID for validation
-
-    Returns:
-        JSONRPCError if validation fails, None if validation passes
-    """
-    # Validate protocol version
+    """Validate message attributes (protocol version, session ID)."""
     protocol_version = None
     if "ProtocolVersion" in message_attrs:
         protocol_version = message_attrs["ProtocolVersion"]["StringValue"]
@@ -167,7 +147,6 @@ def validate_message_attributes(
     if not validate_protocol_version(protocol_version):
         return create_protocol_version_error_response(protocol_version)
 
-    # Validate session ID if present or required
     session_id = None
     if "SessionId" in message_attrs:
         session_id = message_attrs["SessionId"]["StringValue"]
@@ -178,7 +157,6 @@ def validate_message_attributes(
     if session_id and not validate_session_id(session_id):
         return create_session_id_error_response(session_id)
 
-    # Validate session ID matches expected value
     if existing_session_id and session_id and session_id != existing_session_id:
         return create_session_not_found_error_response(session_id)
 
@@ -202,10 +180,8 @@ async def to_session_message(sqs_message: Dict[str, Any]) -> SessionMessage:
             except json.JSONDecodeError:
                 actual_message = body
         else:
-            # If body is already a dict, convert to JSON string first
             actual_message = json.dumps(body)
 
-        # Use the new validation function
         session_message, error = validate_and_parse_message(actual_message)
         if error:
             raise ValueError(f"Invalid JSON-RPC message: {error.error.message}")

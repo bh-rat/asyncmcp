@@ -134,10 +134,8 @@ class SnsSqsSessionManager:
         receipt_handle = sqs_message["ReceiptHandle"]
 
         try:
-            # Extract combined message attributes (from both SQS and SNS sources)
             combined_attrs = await self._extract_combined_message_attributes(sqs_message)
 
-            # First, validate message attributes (protocol version, session ID format)
             error_response = validate_message_attributes(combined_attrs)
             if error_response:
                 logger.warning(f"Message validation failed: {error_response.error.message}")
@@ -156,7 +154,6 @@ class SnsSqsSessionManager:
                 await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, receipt_handle)
                 return
 
-            # Extract session info
             session_id = combined_attrs.get("SessionId", {}).get("StringValue")
             protocol_version = combined_attrs.get("ProtocolVersion", {}).get("StringValue")
 
@@ -174,7 +171,6 @@ class SnsSqsSessionManager:
 
                 if session_id in self._transport_instances:
                     transport = self._transport_instances[session_id]
-                    # Check if session is terminated
                     if transport.is_terminated:
                         error_response = create_session_terminated_error_response(session_id)
                         await self._send_error_response_if_possible(error_response, combined_attrs)
@@ -192,7 +188,6 @@ class SnsSqsSessionManager:
         except Exception as e:
             logger.error(f"Error processing SQS message: {e}")
             error_response = create_internal_error_response(f"Internal server error: {str(e)}")
-            # Try to get attributes for error response
             try:
                 combined_attrs = await self._extract_combined_message_attributes(sqs_message)
                 await self._send_error_response_if_possible(error_response, combined_attrs)
@@ -204,12 +199,12 @@ class SnsSqsSessionManager:
         """Extract message attributes from both SQS and SNS sources."""
         combined_attrs = {}
 
-        # First get SQS message attributes
+        # SQS message attributes
         message_attrs = sqs_message.get("MessageAttributes", {})
         for key, value in message_attrs.items():
             combined_attrs[key] = value
 
-        # Then check for SNS notification attributes
+        # SNS notification attributes
         try:
             body = json.loads(sqs_message["Body"])
             if "MessageAttributes" in body:
@@ -242,16 +237,12 @@ class SnsSqsSessionManager:
     async def _send_error_response_if_possible(self, error_response, message_attrs: Dict[str, Any]) -> None:
         """Send an error response back to the client if we can determine the topic."""
         try:
-            # For SNS+SQS, we can only send errors if there's an existing session with client topic
             session_id = message_attrs.get("SessionId", {}).get("StringValue")
             if session_id and session_id in self._transport_instances:
                 transport = self._transport_instances[session_id]
                 if not transport.is_terminated and transport.client_topic_arn:
                     await transport.send_error_to_client_topic(error_response)
                     return
-
-            # For initialize requests, try to extract client_topic_arn from the message
-            # This is handled in _handle_initialize_request where we have the full message
 
         except Exception as e:
             logger.debug(f"Could not send error response: {e}")
@@ -283,7 +274,6 @@ class SnsSqsSessionManager:
             if not session_id:
                 session_id = uuid4().hex
 
-            # Validate the generated session ID
             if not validate_session_id(session_id):
                 logger.error(f"Generated invalid session ID: {session_id}")
                 session_id = uuid4().hex

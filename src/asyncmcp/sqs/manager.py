@@ -138,7 +138,6 @@ class SqsSessionManager:
         receipt_handle = sqs_message["ReceiptHandle"]
 
         try:
-            # First, validate message attributes (protocol version, session ID format)
             error_response = validate_message_attributes(message_attrs)
             if error_response:
                 logger.warning(f"Message validation failed: {error_response.error.message}")
@@ -146,9 +145,7 @@ class SqsSessionManager:
                 await delete_sqs_message(self.sqs_client, self.config.read_queue_url, receipt_handle)
                 return
 
-            # Parse and validate message body
             body = sqs_message["Body"]
-            # Handle SNS notification format if needed
             actual_message = await self._extract_message_body(body)
 
             session_message, parse_error = validate_and_parse_message(actual_message)
@@ -159,7 +156,6 @@ class SqsSessionManager:
                 await delete_sqs_message(self.sqs_client, self.config.read_queue_url, receipt_handle)
                 return
 
-            # Extract session info
             session_id = message_attrs.get("SessionId", {}).get("StringValue")
             protocol_version = message_attrs.get("ProtocolVersion", {}).get("StringValue")
 
@@ -177,7 +173,6 @@ class SqsSessionManager:
 
                 if session_id in self._transport_instances:
                     transport = self._transport_instances[session_id]
-                    # Check if session is terminated
                     if transport.is_terminated:
                         error_response = create_session_terminated_error_response(session_id)
                         await self._send_error_response_if_possible(error_response, message_attrs)
@@ -204,7 +199,6 @@ class SqsSessionManager:
             try:
                 parsed_body = json.loads(body)
                 if "Message" in parsed_body and "Type" in parsed_body:
-                    # This is an SNS notification, extract the actual message
                     return parsed_body["Message"]
                 else:
                     return body
@@ -219,16 +213,12 @@ class SqsSessionManager:
     ) -> None:
         """Send an error response back to the client if we can determine the response queue."""
         try:
-            # For SQS, we can only send errors if there's an existing session with response queue
             session_id = message_attrs.get("SessionId", {}).get("StringValue")
             if session_id and session_id in self._transport_instances:
                 transport = self._transport_instances[session_id]
                 if not transport.is_terminated and transport.response_queue_url:
                     await transport.send_error_to_client_queue(error_response)
                     return
-
-            # For initialize requests, try to extract response_queue_url from the message
-            # This is handled in _handle_initialize_request where we have the full message
 
         except Exception as e:
             logger.debug(f"Could not send error response: {e}")
@@ -260,7 +250,6 @@ class SqsSessionManager:
             if not session_id:
                 session_id = uuid4().hex
 
-            # Validate the generated session ID
             if not validate_session_id(session_id):
                 logger.error(f"Generated invalid session ID: {session_id}")
                 session_id = uuid4().hex

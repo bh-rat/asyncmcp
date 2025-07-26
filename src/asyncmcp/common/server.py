@@ -5,16 +5,9 @@ from typing import Any, AsyncGenerator, Optional, Union
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCError
 
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 from asyncmcp.common.protocols import ServerTransportProtocol
-from asyncmcp.common.utils import (
-    create_jsonrpc_error_response,
-    is_initialize_request,
-    validate_protocol_version,
-    validate_session_id,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -122,24 +115,6 @@ class ServerTransport(ServerTransportProtocol):
             self._read_stream = None
             self._write_stream_reader = None
             self._write_stream = None
-
-    def validate_protocol_version_from_message(self, protocol_version: Optional[str]) -> bool:
-        """Validate protocol version using utils function."""
-        return validate_protocol_version(protocol_version)
-
-    def validate_session_id_pattern(self, session_id: str) -> bool:
-        """Validate session ID pattern using utils function."""
-        return validate_session_id(session_id)
-
-    def is_initialize_request_message(self, session_message: SessionMessage) -> bool:
-        """Check if message is an initialize request using utils function."""
-        return is_initialize_request(session_message)
-
-    def create_error_response(
-        self, error_message: str, error_code: int, request_id: Optional[str] = None
-    ) -> JSONRPCError:
-        """Create standardized JSON-RPC error response using utils function."""
-        return create_jsonrpc_error_response(error_message, error_code, request_id)
 
     async def _message_forwarder(self) -> None:
         if not self._write_stream_reader or not self._outgoing_message_sender:

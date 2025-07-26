@@ -92,7 +92,6 @@ class WebhookTransport(ServerTransport):
             return
 
         try:
-            # Create a SessionMessage from the error response
             error_message = JSONRPCMessage(root=error_response)
             error_session_message = SessionMessage(error_message)
             await self.send_to_client_webhook(error_session_message)

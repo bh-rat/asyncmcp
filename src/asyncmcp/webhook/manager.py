@@ -140,7 +140,6 @@ class WebhookSessionManager:
 
             body = await request.body()
 
-            # Parse and validate message body using our enhanced validation
             try:
                 body_str = body.decode("utf-8")
             except UnicodeDecodeError:
@@ -159,38 +158,10 @@ class WebhookSessionManager:
                     status_code=400,
                 )
 
-            # Extract client and session info from headers
             client_id = request.headers.get("X-Client-ID")
             session_id = request.headers.get("X-Session-ID")
             protocol_version = request.headers.get("X-Protocol-Version")
 
-            if not client_id:
-                error_response = create_invalid_request_error_response("Missing X-Client-ID header")
-                return Response(
-                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
-                    media_type="application/json",
-                    status_code=400,
-                )
-
-            # Validate protocol version
-            if not validate_protocol_version(protocol_version):
-                error_response = create_protocol_version_error_response(protocol_version)
-                return Response(
-                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
-                    media_type="application/json",
-                    status_code=400,
-                )
-
-            # Validate session ID if present
-            if session_id and not validate_session_id(session_id):
-                error_response = create_session_id_error_response(session_id)
-                return Response(
-                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
-                    media_type="application/json",
-                    status_code=400,
-                )
-
-            # Check if session is terminated
             if session_id and session_id in self._transport_instances:
                 transport = self._transport_instances[session_id]
                 if transport.is_terminated:
@@ -201,7 +172,30 @@ class WebhookSessionManager:
                         status_code=404,
                     )
 
-            # Handle initialization request
+            if not client_id:
+                error_response = create_invalid_request_error_response("Missing X-Client-ID header")
+                return Response(
+                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                    media_type="application/json",
+                    status_code=400,
+                )
+
+            if not validate_protocol_version(protocol_version):
+                error_response = create_protocol_version_error_response(protocol_version)
+                return Response(
+                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                    media_type="application/json",
+                    status_code=400,
+                )
+
+            if session_id and not validate_session_id(session_id):
+                error_response = create_session_id_error_response(session_id)
+                return Response(
+                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                    media_type="application/json",
+                    status_code=400,
+                )
+
             if is_initialize_request(session_message):
                 return await self._handle_initialize_request(session_message, client_id, session_id, protocol_version)
 
@@ -221,7 +215,6 @@ class WebhookSessionManager:
                 return await self._handle_initialized_notification(session_message, session_id)
 
             else:
-                # Regular request - route to existing session
                 return await self._handle_regular_request(session_message, client_id, session_id)
 
         except Exception as e:
@@ -245,7 +238,6 @@ class WebhookSessionManager:
                 status_code=400,
             )
 
-        # Validate session ID format
         if not validate_session_id(session_id):
             error_response = create_session_id_error_response(session_id)
             return Response(
@@ -254,7 +246,6 @@ class WebhookSessionManager:
                 status_code=400,
             )
 
-        # Terminate the session
         success = await self.terminate_session(session_id)
         if success:
             return Response(
@@ -289,7 +280,6 @@ class WebhookSessionManager:
         async with self._session_lock:
             new_session_id = session_id or generate_session_id()
 
-            # Validate the session ID (either provided or generated)
             if not validate_session_id(new_session_id):
                 error_response = create_session_id_error_response(new_session_id)
                 return Response(
@@ -363,10 +353,7 @@ class WebhookSessionManager:
 
         session_info = self._sessions[session_id]
         if session_info.state != "init_pending":
-            logger.warning(
-                f"[_handle_initialized_notification] Session {session_id} "
-                f"is not in init_pending state: {session_info.state}"
-            )
+            logger.warning(f"Session {session_id} " f"is not in init_pending state: {session_info.state}")
             return Response(
                 content=orjson.dumps({"error": "Session not in init_pending state"}),
                 media_type="application/json",
@@ -414,7 +401,7 @@ class WebhookSessionManager:
             transport = self._transport_instances[target_session_id]
             await transport.send_message(session_message)
         else:
-            logger.error(f"[_handle_regular_request] Session transport not found for session_id={target_session_id}")
+            logger.error(f"Session transport not found for session_id={target_session_id}")
             return Response(
                 content=orjson.dumps({"error": "Session transport not found"}),
                 media_type="application/json",
