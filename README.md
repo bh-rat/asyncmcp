@@ -308,6 +308,7 @@ We welcome contributions and discussions about async MCP architectures!
 git clone https://github.com/bh-rat/asyncmcp.git
 cd asyncmcp
 uv sync
+pre-commit install
 ```
 
 Code formatting and linting is enforced via pre-commit hooks using ruff.

@@ -50,6 +50,7 @@ required-version = ">=0.7.2"
 dev = [
     "localstack>=4.5.0",
     "mypy>=1.16.1",
+    "pre-commit>=4.0.1",
     "pyright>=1.1.391",
     "pytest>=8.3.4",
     "pytest-timeout>=2.4.0",
@@ -119,7 +120,6 @@ strict = ["src/asyncmcp/**/*.py"]
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-preview = true
 
 [tool.ruff.lint]
 # Selected rules: F401 (unused imports), TID252 (relative imports), 
