@@ -49,6 +49,7 @@ from shared import (
 from starlette.applications import Starlette
 from starlette.routing import Route
 
+from asyncmcp.webhook.utils import WebhookClientConfig
 from asyncmcp.webhook.client import webhook_client
 
 # Add a global flag to track initialization
@@ -252,9 +253,6 @@ def main(server_port, webhook_port, client_id) -> int:
     async def arun():
         # Configure webhook transport
         print_colored("🔧 Configuring webhook transport", "yellow")
-
-        # Create custom webhook config
-        from asyncmcp.webhook.utils import WebhookClientConfig
 
         config = WebhookClientConfig(
             server_url=f"http://localhost:{server_port}/mcp/request",

@@ -2,13 +2,14 @@
 Comprehensive anyio fixture tests for SQS client transport module.
 """
 
+import json
 from unittest.mock import patch
 
 import anyio
 import pytest
 from mcp.shared.message import SessionMessage
 
-from asyncmcp.common.aws_queue_utils import to_session_message
+from asyncmcp.common.utils import to_session_message
 from asyncmcp.sqs.client import sqs_client
 
 # Updated imports to use correct modules
@@ -67,8 +68,6 @@ class TestSqsClient:
                 message_body = call_args[1]["MessageBody"]
 
                 # Parse the message body and check it contains response_queue_url
-                import json
-
                 parsed_message = json.loads(message_body)
                 assert "params" in parsed_message
                 assert "response_queue_url" in parsed_message["params"]
@@ -100,9 +99,6 @@ class TestSqsClient:
                 # Regular requests should not have response_queue_url added
                 call_args = mock_sqs_client.send_message.call_args
                 message_body = call_args[1]["MessageBody"]
-
-                import json
-
                 parsed_message = json.loads(message_body)
                 # Should be the original message without response_queue_url added
                 assert parsed_message["method"] == "test/method"

@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
@@ -226,8 +226,6 @@ def high_throughput_config():
 @pytest.fixture
 def mock_mcp_server():
     """Mock MCP server for session manager testing."""
-    from unittest.mock import AsyncMock
-
     mock_server = MagicMock()
     mock_server.run = AsyncMock()
     mock_server.create_initialization_options = MagicMock(return_value={})

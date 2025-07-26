@@ -18,7 +18,7 @@ from starlette.responses import Response
 from asyncmcp.webhook.client import webhook_client
 from asyncmcp.webhook.manager import WebhookSessionManager
 from asyncmcp.webhook.server import WebhookTransport
-from asyncmcp.webhook.utils import SessionInfo
+from asyncmcp.webhook.utils import SessionInfo, WebhookClientConfig, WebhookServerConfig
 
 
 class TestWebhookIntegration:
@@ -166,8 +166,6 @@ class TestWebhookIntegration:
     async def test_multiple_clients_different_webhooks(self, mock_mcp_server):
         """Test multiple clients with different webhook URLs."""
         # Create configs for server and two clients
-        from asyncmcp.webhook.utils import WebhookClientConfig, WebhookServerConfig
-
         server_config = WebhookServerConfig(
             timeout_seconds=5.0,
         )
@@ -309,15 +307,18 @@ class TestWebhookIntegration:
 
         # Mock a malformed HTTP request
         mock_request = MagicMock(spec=Request)
+        mock_request.method = "POST"
         mock_request.body = AsyncMock(return_value=b"invalid json")
         mock_request.headers = Headers({"X-Client-ID": "test-client"})
 
         response = await session_manager._handle_client_request(mock_request)
 
-        # Should return error response
-        assert response.status_code == 500
+        # Should return parse error response (400 Bad Request for malformed JSON)
+        assert response.status_code == 400
         response_body = json.loads(response.body.decode())
+        # Check JSON-RPC error response structure
         assert "error" in response_body
+        assert "message" in response_body["error"]
 
     @pytest.mark.anyio
     async def test_missing_client_id_header(self, client_server_config, mock_mcp_server):
@@ -327,6 +328,7 @@ class TestWebhookIntegration:
 
         # Mock request without client ID
         mock_request = MagicMock(spec=Request)
+        mock_request.method = "POST"
         mock_request.body = AsyncMock(
             return_value=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "test/method", "params": {}}).encode()
         )
@@ -337,7 +339,10 @@ class TestWebhookIntegration:
         # Should return error for missing client ID
         assert response.status_code == 400
         response_body = json.loads(response.body.decode())
-        assert "Missing X-Client-ID header" in response_body["error"]
+        # Check JSON-RPC error response structure
+        assert "error" in response_body
+        assert "message" in response_body["error"]
+        assert "Missing X-Client-ID header" in response_body["error"]["message"]
 
 
 class TestWebhookTransportFailures:
