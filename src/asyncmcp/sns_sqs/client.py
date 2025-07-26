@@ -72,10 +72,6 @@ async def sns_sqs_client(
                     message_attributes = await _create_sns_message_attributes(
                         session_message, config, state.client_id, state.session_id
                     )
-                    logger.info(
-                        f"Client sending message with SessionId: {state.session_id}, attributes: {list(message_attributes.keys())}"
-                    )
-
                     # For initialize requests, add client_topic_arn to the params
                     if (
                         isinstance(session_message.message.root, types.JSONRPCRequest)

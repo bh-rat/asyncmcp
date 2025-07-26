@@ -69,8 +69,6 @@ class SnsSqsTransport(ServerTransport):
                     TopicArn=self.client_topic_arn, Message=json_message, MessageAttributes=message_attributes
                 )
             )
-
-            logger.info(f"Successfully sent response to client topic {self.client_topic_arn}")
         except Exception as e:
             logger.error(f"Error in sending message to topic {self.client_topic_arn}: {e}")
             raise

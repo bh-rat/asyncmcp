@@ -83,8 +83,6 @@ class ServerTransport(ServerTransportProtocol):
         """Terminate this transport session."""
         if self._terminated:
             return
-
-        logger.info(f"Terminating SQS transport session: {self.session_id}")
         self._terminated = True
         await self.cleanup()
 

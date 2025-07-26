@@ -64,13 +64,9 @@ class SnsSqsSessionManager:
             self._task_group = tg
             tg.start_soon(self._sqs_message_processor)
             tg.start_soon(self._event_driven_message_sender)
-
-            logger.info("SNS/SQS session manager started")
-
             try:
                 yield
             finally:
-                logger.info("SNS/SQS session manager shutting down")
                 tg.cancel_scope.cancel()
                 await self._shutdown_all_sessions()
 
@@ -89,8 +85,6 @@ class SnsSqsSessionManager:
         1. Creates new session for 'initialize' requests
         2. Routes to existing session based on SessionId
         """
-        logger.info("Starting SNS/SQS message processor")
-
         try:
             while True:
                 # Check for cancellation
@@ -120,7 +114,6 @@ class SnsSqsSessionManager:
                     logger.error(f"Error in SNS/SQS message processor: {e}")
                     await anyio.sleep(min(self.config.poll_interval_seconds, 1.0))
         except anyio.get_cancelled_exc_class():
-            logger.info("SNS/SQS message processor cancelled")
             raise
         except Exception as e:
             logger.error(f"Fatal error in SNS/SQS message processor: {e}")
@@ -205,8 +198,6 @@ class SnsSqsSessionManager:
                 try:
                     async with transport.connect() as (read_stream, write_stream):
                         task_status.started()
-                        logger.info(f"Started SNS/SQS session: {session_id}")
-
                         await self.app.run(
                             read_stream,
                             write_stream,
@@ -218,7 +209,6 @@ class SnsSqsSessionManager:
                 finally:
                     async with self._session_lock:
                         if session_id in self._transport_instances:
-                            logger.info(f"Cleaning up session: {session_id}")
                             del self._transport_instances[session_id]
 
             assert self._task_group is not None
@@ -230,8 +220,6 @@ class SnsSqsSessionManager:
         """
         Background task to send outgoing messages from sessions back to SNS topics.
         """
-        logger.info("Starting SNS message sender")
-
         if not self._outgoing_message_receiver:
             logger.error("No outgoing message receiver configured")
             return
@@ -256,7 +244,6 @@ class SnsSqsSessionManager:
                         logger.error(f"Error processing outgoing message for session {message_event.session_id}: {e}")
 
         except anyio.get_cancelled_exc_class():
-            logger.info("SNS message sender cancelled")
             raise
         except Exception as e:
             logger.error(f"Fatal error in SNS message sender: {e}")
@@ -268,7 +255,6 @@ class SnsSqsSessionManager:
                 transport = self._transport_instances[session_id]
                 await transport.terminate()
                 del self._transport_instances[session_id]
-                logger.info(f"Terminated session: {session_id}")
                 return True
             return False
 

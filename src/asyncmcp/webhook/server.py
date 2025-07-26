@@ -78,17 +78,10 @@ class WebhookTransport(ServerTransport):
             message_root = session_message.message.root
             method = getattr(message_root, 'method', 'N/A')
             msg_id = getattr(message_root, 'id', 'N/A')
-            logger.info(
-                f"[WebhookTransport.send_message] Sending to MCP server: "
-                f"method={method} id={msg_id} session_id={self.session_id}"
-            )
-
             # Log the full message for debugging
             json_message = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
-            logger.info(f"[WebhookTransport.send_message] Full message: {json_message}")
 
             await self._read_stream_writer.send(session_message)
-            logger.info("[WebhookTransport.send_message] Successfully sent message to MCP server")
         except Exception as e:
             logger.warning(f"Error sending message to session {self.session_id}: {e}")
 

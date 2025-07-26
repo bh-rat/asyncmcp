@@ -174,7 +174,6 @@ class WebhookSessionManager:
             )
             self._sessions[new_session_id] = session_info
             self._client_sessions[client_id] = new_session_id
-            logger.info(f"[_handle_initialize_request] Created session: {session_info}")
             if isinstance(session_message.message.root, types.JSONRPCRequest):
                 self._request_sessions[str(session_message.message.root.id)] = new_session_id
             if not self.http_client:
@@ -191,15 +190,11 @@ class WebhookSessionManager:
                 outgoing_message_sender=self._outgoing_message_sender,
             )
             self._transport_instances[new_session_id] = transport
-            logger.info(f"[_handle_initialize_request] Transport created for session_id={new_session_id}")
 
             async def run_session(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED):
                 try:
                     async with transport.connect() as (read_stream, write_stream):
                         task_status.started()
-                        logger.info(
-                            f"[_handle_initialize_request/run_session] Started webhook session: {new_session_id}"
-                        )
                         await self.app.run(
                             read_stream,
                             write_stream,
@@ -211,9 +206,6 @@ class WebhookSessionManager:
                 finally:
                     async with self._session_lock:
                         if new_session_id in self._transport_instances:
-                            logger.info(
-                                f"[_handle_initialize_request/run_session] Cleaning up session: {new_session_id}"
-                            )
                             del self._transport_instances[new_session_id]
                         if new_session_id in self._sessions:
                             del self._sessions[new_session_id]
@@ -343,8 +335,6 @@ class WebhookSessionManager:
 
     async def _event_driven_message_sender(self) -> None:
         """Background task to send outgoing messages from sessions back to clients via webhooks."""
-        logger.info("Starting webhook message sender")
-
         if not self._outgoing_message_receiver:
             logger.error("No outgoing message receiver configured")
             return
@@ -375,7 +365,6 @@ class WebhookSessionManager:
                         logger.error(f"Error processing outgoing message for session {message_event.session_id}: {e}")
 
         except anyio.get_cancelled_exc_class():
-            logger.info("Webhook message sender cancelled")
             raise
         except Exception as e:
             logger.error(f"Fatal error in webhook message sender: {e}")
@@ -399,7 +388,7 @@ class WebhookSessionManager:
                     if client_id in self._client_sessions:
                         del self._client_sessions[client_id]
 
-                logger.info(f"Terminated session: {session_id}")
+                logger.debug(f"Terminated session: {session_id}")
                 return True
             return False
 

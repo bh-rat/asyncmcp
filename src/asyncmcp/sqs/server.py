@@ -67,8 +67,6 @@ class SqsTransport(ServerTransport):
                 )
             )
 
-            logger.info(f"Successfully sent response to client queue")
-
         except Exception as e:
             logger.error(f"Error sending message to client queue {self.response_queue_url}: {e}")
             raise
