@@ -1,6 +1,6 @@
 import logging
 
-from typing import Optional, Any, AsyncGenerator
+from typing import Optional, Any, AsyncGenerator, Union
 from contextlib import asynccontextmanager
 
 import anyio
@@ -16,21 +16,21 @@ class ServerTransport(ServerTransportProtocol):
     """Base class for defining the server-side transport."""
 
     def __init__(
-            self,
-            config: Any,
-            session_id: str,
-            outgoing_message_sender: Optional[MemoryObjectSendStream[OutgoingMessageEvent]] = None,
+        self,
+        config: Any,
+        session_id: Optional[str],
+        outgoing_message_sender: Optional[MemoryObjectSendStream[OutgoingMessageEvent]] = None,
     ):
         self.config = config
-        self.session_id = session_id
         self._outgoing_message_sender = outgoing_message_sender
+        self.session_id = session_id
 
         self._terminated = False
 
-        self._read_stream_writer = None
-        self._read_stream = None
-        self._write_stream_reader = None
-        self._write_stream = None
+        self._read_stream_writer: Optional[MemoryObjectSendStream[Union[SessionMessage, Exception]]] = None
+        self._read_stream: Optional[MemoryObjectReceiveStream[Union[SessionMessage, Exception]]] = None
+        self._write_stream_reader: Optional[MemoryObjectReceiveStream[SessionMessage]] = None
+        self._write_stream: Optional[MemoryObjectSendStream[SessionMessage]] = None
 
     @property
     def is_terminated(self) -> bool:
@@ -38,9 +38,11 @@ class ServerTransport(ServerTransportProtocol):
         return self._terminated
 
     @asynccontextmanager
-    async def connect(self) -> AsyncGenerator[
+    async def connect(
+        self,
+    ) -> AsyncGenerator[
         tuple[
-            MemoryObjectReceiveStream[SessionMessage | Exception],
+            MemoryObjectReceiveStream[Union[SessionMessage, Exception]],
             MemoryObjectSendStream[SessionMessage],
         ],
         None,
@@ -55,7 +57,7 @@ class ServerTransport(ServerTransportProtocol):
             raise RuntimeError("Cannot connect to terminated transport")
 
         # Create memory streams for this session
-        read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+        read_stream_writer, read_stream = anyio.create_memory_object_stream[Union[SessionMessage, Exception]](0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
         # Store streams
@@ -81,8 +83,6 @@ class ServerTransport(ServerTransportProtocol):
         """Terminate this transport session."""
         if self._terminated:
             return
-
-        logger.info(f"Terminating SQS transport session: {self.session_id}")
         self._terminated = True
         await self.cleanup()
 

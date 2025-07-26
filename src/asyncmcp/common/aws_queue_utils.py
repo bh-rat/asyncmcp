@@ -1,6 +1,8 @@
 from typing import Optional, Any, Dict
 
 import anyio
+import anyio.lowlevel
+import anyio.to_thread
 import logging
 import json
 import time
@@ -129,7 +131,7 @@ async def sqs_reader(
                         if state.session_id is None:
                             session_id = None
                             msg_attrs = message.get("MessageAttributes", {})
-                            
+
                             if "SessionId" in msg_attrs:
                                 session_id = msg_attrs["SessionId"]["StringValue"]
                             else:
@@ -142,7 +144,7 @@ async def sqs_reader(
                                             session_id = sns_attrs["SessionId"]["Value"]
                                 except (json.JSONDecodeError, KeyError):
                                     pass
-                            
+
                             if session_id:
                                 await state.set_session_id_if_none(session_id)
 

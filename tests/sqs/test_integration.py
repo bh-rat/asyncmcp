@@ -12,12 +12,9 @@ from mcp.types import JSONRPCMessage, JSONRPCRequest
 
 from asyncmcp.sqs.client import sqs_client
 from asyncmcp.sqs.manager import SqsSessionManager
-from asyncmcp.sqs.utils import SqsTransportConfig
+from asyncmcp.sqs.utils import SqsClientConfig, SqsServerConfig
 
-from .shared_fixtures import (
-    client_server_config,
-    mock_mcp_server,
-)
+from tests.sqs.shared_fixtures import client_server_config, mock_mcp_server
 
 
 class TestSQSIntegrationWithDynamicQueues:
@@ -118,7 +115,7 @@ class TestSQSIntegrationWithDynamicQueues:
                 # Start client
                 async def run_client():
                     await anyio.sleep(0.1)  # Let server start first
-                    async with sqs_client(client_config, client_sqs, client_response_queue) as (
+                    async with sqs_client(client_config, client_sqs) as (
                         read_stream,
                         write_stream,
                     ):
@@ -220,7 +217,7 @@ class TestSQSIntegrationWithDynamicQueues:
 
                 async def run_mock_client():
                     await anyio.sleep(0.1)
-                    async with sqs_client(client_config, client_sqs, client_response_queue) as (
+                    async with sqs_client(client_config, client_sqs) as (
                         read_stream,
                         write_stream,
                     ):
@@ -243,23 +240,25 @@ class TestSQSIntegrationWithDynamicQueues:
     async def test_multiple_clients_different_queues(self, mock_mcp_server):
         """Test multiple clients with different response queues."""
         # Create configs for server and two clients
-        server_config = SqsTransportConfig(
+        server_config = SqsServerConfig(
             read_queue_url="http://localhost:4566/000000000000/server-requests",
             max_messages=10,
             wait_time_seconds=1,
             poll_interval_seconds=0.01,
         )
 
-        client1_config = SqsTransportConfig(
+        client1_config = SqsClientConfig(
             read_queue_url="http://localhost:4566/000000000000/server-requests",
+            response_queue_url="http://localhost:4566/000000000000/client1-responses",
             client_id="client-1",
             max_messages=1,
             wait_time_seconds=1,
             poll_interval_seconds=0.01,
         )
 
-        client2_config = SqsTransportConfig(
+        client2_config = SqsClientConfig(
             read_queue_url="http://localhost:4566/000000000000/server-requests",
+            response_queue_url="http://localhost:4566/000000000000/client2-responses",
             client_id="client-2",
             max_messages=1,
             wait_time_seconds=1,

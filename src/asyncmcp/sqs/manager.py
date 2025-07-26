@@ -6,21 +6,24 @@ from typing import Any, Dict, Optional
 from uuid import uuid4
 
 import anyio
+import anyio.lowlevel
+import anyio.to_thread
 from anyio.abc import TaskStatus
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
 from mcp.server.lowlevel.server import Server as MCPServer
 
-from .server import SqsTransport, OutgoingMessageEvent
-from .utils import SqsTransportConfig
+from asyncmcp.sqs.server import SqsTransport, OutgoingMessageEvent
+from asyncmcp.sqs.utils import SqsServerConfig
 from asyncmcp.common.aws_queue_utils import to_session_message, delete_sqs_message
 
 logger = logging.getLogger(__name__)
 
 
 class SqsSessionManager:
-    def __init__(self, app: MCPServer, config: SqsTransportConfig, sqs_client: Any, stateless: bool = False):
+    def __init__(self, app: MCPServer, config: SqsServerConfig, sqs_client: Any, stateless: bool = False):
         self.app = app
         self.config = config
         self.sqs_client = sqs_client
@@ -29,8 +32,8 @@ class SqsSessionManager:
         self._session_lock = anyio.Lock()
         self._transport_instances: Dict[str, SqsTransport] = {}
 
-        self._outgoing_message_sender: Optional[anyio.MemoryObjectSendStream[OutgoingMessageEvent]] = None
-        self._outgoing_message_receiver: Optional[anyio.MemoryObjectReceiveStream[OutgoingMessageEvent]] = None
+        self._outgoing_message_sender: Optional[MemoryObjectSendStream[OutgoingMessageEvent]] = None
+        self._outgoing_message_receiver: Optional[MemoryObjectReceiveStream[OutgoingMessageEvent]] = None
 
         self._task_group: Optional[anyio.abc.TaskGroup] = None
         self._run_lock = threading.Lock()
@@ -58,12 +61,12 @@ class SqsSessionManager:
             tg.start_soon(self._sqs_message_processor)
             tg.start_soon(self._event_driven_message_sender)
 
-            logger.info("SQS session manager started")
+            logger.debug("SQS session manager started")
 
             try:
                 yield
             finally:
-                logger.info("SQS session manager shutting down")
+                logger.debug("SQS session manager shutting down")
                 tg.cancel_scope.cancel()
                 await self._shutdown_all_sessions()
 
@@ -82,8 +85,6 @@ class SqsSessionManager:
         1. Creates new session for 'initialize' requests
         2. Routes to existing session based on SessionId
         """
-        logger.info("Starting SQS message processor")
-
         try:
             while True:
                 # Check for cancellation
@@ -113,7 +114,7 @@ class SqsSessionManager:
                     logger.error(f"Error in SQS message processor: {e}")
                     await anyio.sleep(min(self.config.poll_interval_seconds, 1.0))
         except anyio.get_cancelled_exc_class():
-            logger.info("SQS message processor cancelled")
+            logger.debug("SQS message processor cancelled")
             raise
         except Exception as e:
             logger.error(f"Fatal error in SQS message processor: {e}")
@@ -185,7 +186,7 @@ class SqsSessionManager:
                 try:
                     async with transport.connect() as (read_stream, write_stream):
                         task_status.started()
-                        logger.info(f"Started SQS session: {session_id}")
+                        logger.debug(f"Started SQS session: {session_id}")
 
                         await self.app.run(
                             read_stream,
@@ -198,7 +199,7 @@ class SqsSessionManager:
                 finally:
                     async with self._session_lock:
                         if session_id in self._transport_instances:
-                            logger.info(f"Cleaning up session: {session_id}")
+                            logger.debug(f"Cleaning up session: {session_id}")
                             del self._transport_instances[session_id]
 
             assert self._task_group is not None
@@ -210,8 +211,6 @@ class SqsSessionManager:
         """
         Background task to send outgoing messages from sessions back to SQS.
         """
-        logger.info("Starting SQS message sender")
-
         if not self._outgoing_message_receiver:
             logger.error("No outgoing message receiver configured")
             return
@@ -220,6 +219,9 @@ class SqsSessionManager:
             async with self._outgoing_message_receiver:
                 async for message_event in self._outgoing_message_receiver:
                     try:
+                        if not message_event.session_id:
+                            logger.warning("Received message event with no session_id")
+                            continue
                         transport = self._transport_instances.get(message_event.session_id)
                         if not transport or transport.is_terminated:
                             logger.warning(
@@ -233,7 +235,6 @@ class SqsSessionManager:
                         logger.error(f"Error processing outgoing message for session {message_event.session_id}: {e}")
 
         except anyio.get_cancelled_exc_class():
-            logger.info("SQS message sender cancelled")
             raise
         except Exception as e:
             logger.error(f"Fatal error in SQS message sender: {e}")
@@ -245,7 +246,7 @@ class SqsSessionManager:
                 transport = self._transport_instances[session_id]
                 await transport.terminate()
                 del self._transport_instances[session_id]
-                logger.info(f"Terminated session: {session_id}")
+                logger.debug(f"Terminated session: {session_id}")
                 return True
             return False
 

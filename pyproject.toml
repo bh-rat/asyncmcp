@@ -26,8 +26,11 @@ classifiers = [
 dependencies = [
     "anyio>=4.9.0",
     "boto3>=1.38.36,<2.0.0",
+    "httpx>=0.28.1",
     "mcp>=1.9.4,<2.0.0",
     "orjson>=3.10.0,<4.0.0",
+    "starlette>=0.47.1",
+    "uvicorn>=0.35.0",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +52,7 @@ dev = [
     "mypy>=1.16.1",
     "pyright>=1.1.391",
     "pytest>=8.3.4",
+    "pytest-timeout>=2.4.0",
     "pytest-asyncio>=0.21.0",
     "ruff>=0.8.5",
     "trio>=0.26.2",

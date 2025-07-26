@@ -6,7 +6,7 @@ import logging
 from typing import Any, Optional
 from contextlib import asynccontextmanager
 
-import anyio
+import anyio.to_thread
 from anyio.streams.memory import MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
 
@@ -26,7 +26,7 @@ class SnsSqsTransport(ServerTransport):
         config: SnsSqsServerConfig,
         sqs_client: Any,
         sns_client: Any,
-        session_id: str,
+        session_id: Optional[str],
         client_topic_arn: Optional[str] = None,
         outgoing_message_sender: Optional[MemoryObjectSendStream[OutgoingMessageEvent]] = None,
     ):
@@ -41,7 +41,7 @@ class SnsSqsTransport(ServerTransport):
 
     @staticmethod
     async def _create_sns_message_attributes(
-        session_message: SessionMessage, config: SnsSqsServerConfig, session_id: str
+        session_message: SessionMessage, config: SnsSqsServerConfig, session_id: Optional[str]
     ) -> dict:
         """Create SNS message attributes for server-side messages."""
         attrs = create_common_client_message_attributes(session_message, session_id=session_id, client_id=None)
@@ -69,8 +69,6 @@ class SnsSqsTransport(ServerTransport):
                     TopicArn=self.client_topic_arn, Message=json_message, MessageAttributes=message_attributes
                 )
             )
-
-            logger.info(f"Successfully sent response to client topic {self.client_topic_arn}")
         except Exception as e:
             logger.error(f"Error in sending message to topic {self.client_topic_arn}: {e}")
             raise

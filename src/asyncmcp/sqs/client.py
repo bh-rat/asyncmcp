@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 import anyio
 import anyio.lowlevel
+import anyio.to_thread
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from collections.abc import AsyncGenerator
 import json
@@ -12,7 +13,7 @@ import json
 import mcp.types as types
 from mcp.shared.message import SessionMessage
 
-from asyncmcp.sqs.utils import SqsTransportConfig
+from asyncmcp.sqs.utils import SqsClientConfig
 from asyncmcp.common.client_state import ClientState
 from asyncmcp.common.aws_queue_utils import create_common_client_message_attributes, sqs_reader as common_sqs_reader
 
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _create_sqs_message_attributes(
-    session_message: SessionMessage, config: SqsTransportConfig, client_id: str, session_id: Optional[str]
+    session_message: SessionMessage, config: SqsClientConfig, client_id: str, session_id: Optional[str]
 ) -> Dict[str, Any]:
     """Creates SQS message attributes."""
     attrs = create_common_client_message_attributes(
@@ -38,7 +39,7 @@ async def _create_sqs_message_attributes(
 
 @asynccontextmanager
 async def sqs_client(
-    config: SqsTransportConfig, sqs_client: Any, response_queue_url: str
+    config: SqsClientConfig, sqs_client: Any
 ) -> AsyncGenerator[
     tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]],
     None,
@@ -54,7 +55,7 @@ async def sqs_client(
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
     async def sqs_reader():
-        await common_sqs_reader(read_stream_writer, sqs_client, config, response_queue_url, state)
+        await common_sqs_reader(read_stream_writer, sqs_client, config, config.response_queue_url, state)
 
     async def sqs_writer() -> None:
         async with write_stream_reader:
@@ -74,7 +75,7 @@ async def sqs_client(
                         message_dict = session_message.message.model_dump(by_alias=True, exclude_none=True)
                         if "params" not in message_dict:
                             message_dict["params"] = {}
-                        message_dict["params"]["response_queue_url"] = response_queue_url
+                        message_dict["params"]["response_queue_url"] = config.response_queue_url
                         json_message = json.dumps(message_dict)
 
                     await anyio.to_thread.run_sync(

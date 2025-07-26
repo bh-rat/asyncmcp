@@ -28,7 +28,7 @@ class TestProcessSQSMessageServer:
         pass
 
     @pytest.mark.skip(reason="Test needs SNS message handling which was moved to common")
-    @pytest.mark.anyio 
+    @pytest.mark.anyio
     async def test_process_sns_wrapped_message_with_metadata(self, mock_sqs_client):
         # Skip - needs restructuring
         pass
@@ -57,7 +57,7 @@ class TestProcessSQSMessageServer:
 class TestDeleteSQSMessageServer:
     """Test SQS message deletion on server side."""
 
-    @pytest.mark.anyio  
+    @pytest.mark.anyio
     async def test_delete_message_server(self, mock_sqs_client):
         """Test successful message deletion on server."""
         await delete_sqs_message(mock_sqs_client, "http://server-queue", "server-handle")
@@ -94,7 +94,7 @@ class TestSQSMessageProcessorServer:
         """Test processing messages with some invalid ones on server."""
         valid_msg = {
             "MessageId": "valid-server-123",
-            "ReceiptHandle": "valid-server-handle-123", 
+            "ReceiptHandle": "valid-server-handle-123",
             "Body": '{"jsonrpc": "2.0", "id": 1, "method": "server_method", "params": {}}',
             "MessageAttributes": {},
         }

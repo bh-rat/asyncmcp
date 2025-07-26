@@ -4,12 +4,13 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 import anyio
+import anyio.to_thread
 from anyio.streams.memory import MemoryObjectSendStream
 
 from mcp.shared.message import SessionMessage
 
 from asyncmcp.common.server import ServerTransport
-from asyncmcp.sqs.utils import SqsTransportConfig
+from asyncmcp.sqs.utils import SqsServerConfig
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 from asyncmcp.common.aws_queue_utils import create_common_client_message_attributes
 
@@ -23,10 +24,10 @@ class SqsTransport(ServerTransport):
 
     def __init__(
         self,
-        config: SqsTransportConfig,
+        config: SqsServerConfig,
         sqs_client: Any,
-        session_id: str | None = None,
-        response_queue_url: str | None = None,
+        session_id: Optional[str] = None,
+        response_queue_url: Optional[str] = None,
         outgoing_message_sender: Optional[MemoryObjectSendStream[OutgoingMessageEvent]] = None,
     ):
         super().__init__(config, session_id, outgoing_message_sender)
@@ -66,15 +67,13 @@ class SqsTransport(ServerTransport):
                 )
             )
 
-            logger.info(f"Successfully sent response to client queue")
-
         except Exception as e:
             logger.error(f"Error sending message to client queue {self.response_queue_url}: {e}")
             raise
 
 
 @asynccontextmanager
-async def sqs_server(config: SqsTransportConfig, sqs_client: Any, response_queue_url: str):
+async def sqs_server(config: SqsServerConfig, sqs_client: Any, response_queue_url: str):
     """Easy wrapper for initiating a SQS server transport"""
     transport = SqsTransport(config, sqs_client, response_queue_url=response_queue_url)
 

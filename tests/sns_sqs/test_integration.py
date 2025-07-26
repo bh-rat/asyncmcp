@@ -9,7 +9,7 @@ import asyncio
 import json
 import anyio
 
-# Add missing imports 
+# Add missing imports
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, JSONRPCNotification
 
@@ -19,7 +19,7 @@ from asyncmcp.sns_sqs.manager import SnsSqsSessionManager
 from asyncmcp.sns_sqs.client import sns_sqs_client
 from asyncmcp import SnsSqsServerConfig, SnsSqsClientConfig
 
-# Import the server function 
+# Import the server function
 from asyncmcp import sns_sqs_server
 
 

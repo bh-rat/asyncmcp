@@ -1,6 +1,7 @@
 import logging
 
-from typing import Protocol, Optional, AsyncContextManager
+from typing import Protocol, Optional, Union
+from contextlib import AbstractAsyncContextManager
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
@@ -10,14 +11,17 @@ logger = logging.getLogger(__name__)
 
 class ServerTransportProtocol(Protocol):
     """Protocol defining the interface for server-side transport implementations."""
+
     _read_stream_writer: Optional[MemoryObjectSendStream]
     _read_stream: Optional[MemoryObjectReceiveStream]
     _write_stream_reader: Optional[MemoryObjectReceiveStream]
     _write_stream: Optional[MemoryObjectSendStream]
 
-    async def connect(self) -> AsyncContextManager[
+    def connect(
+        self,
+    ) -> AbstractAsyncContextManager[
         tuple[
-            MemoryObjectReceiveStream[SessionMessage | Exception],
+            MemoryObjectReceiveStream[Union[SessionMessage, Exception]],
             MemoryObjectSendStream[SessionMessage],
         ]
     ]:

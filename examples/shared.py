@@ -14,7 +14,8 @@ import mcp.types as types
 from mcp.shared.message import SessionMessage
 import boto3
 
-from asyncmcp.sqs.utils import SqsTransportConfig
+from asyncmcp.sqs.utils import SqsClientConfig, SqsServerConfig
+from asyncmcp.webhook.utils import WebhookClientConfig, WebhookServerConfig
 from asyncmcp import SnsSqsServerConfig, SnsSqsClientConfig
 
 # AWS LocalStack configuration
@@ -42,6 +43,8 @@ logger = logging.getLogger(__name__)
 # Transport types
 TRANSPORT_SNS_SQS = "sns-sqs"
 TRANSPORT_SQS = "sqs"
+TRANSPORT_WEBHOOK = "webhook"
+
 # Common MCP configuration
 DEFAULT_INIT_PARAMS = {
     "protocolVersion": "2025‑06‑18",
@@ -90,117 +93,70 @@ def print_json(data: Dict[str, Any], title: str = ""):
     print_colored(json.dumps(data, indent=2), "white")
 
 
-def create_sns_sqs_server_config(
-    server_sqs_queue_name: str = "mcp-server-requests",
-    server_sns_topic_name: str = "mcp-server-requests",
-    region_name: str = "us-east-1",
-    endpoint_url: str = "http://localhost:4566",
-    max_messages: int = 10,
-    wait_time_seconds: int = 20,
-    poll_interval_seconds: float = 1.0,
-) -> Tuple[SnsSqsServerConfig, Any, Any]:
-    """
-    Create SNS/SQS server configuration with AWS clients.
+def create_client_transport_config(
+    client_id: str = "mcp-client", timeout: Optional[float] = None, transport_type: str = TRANSPORT_SNS_SQS
+) -> Union[
+    Tuple[SnsSqsClientConfig, Any, Any], Tuple[SqsClientConfig, Any, None], Tuple[WebhookClientConfig, None, None]
+]:
+    """Create a standard client transport configuration"""
+    if transport_type == TRANSPORT_WEBHOOK:
+        config = WebhookClientConfig(
+            server_url="http://localhost:8000/mcp/request",
+            client_id=client_id,
+            transport_timeout_seconds=timeout,
+        )
+        return config, None, None
 
-    Args:
-        server_sqs_queue_name: Name of the server's SQS queue
-        server_sns_topic_name: Name of the server's SNS topic (for receiving client requests)
-        region_name: AWS region name
-        endpoint_url: LocalStack endpoint URL
-        max_messages: Maximum messages to process per batch
-        wait_time_seconds: Long polling wait time
-        poll_interval_seconds: Polling interval between batches
+    sqs_client, sns_client = setup_aws_clients()
 
-    Returns:
-        Tuple of (config, sqs_client, sns_client)
-    """
-    # Create AWS clients for LocalStack
-    sqs_client = boto3.client(
-        "sqs",
-        region_name=region_name,
-        endpoint_url=endpoint_url,
-        aws_access_key_id="test",
-        aws_secret_access_key="test",
-    )
-    sns_client = boto3.client(
-        "sns",
-        region_name=region_name,
-        endpoint_url=endpoint_url,
-        aws_access_key_id="test",
-        aws_secret_access_key="test",
-    )
+    if transport_type == TRANSPORT_SNS_SQS:
+        config = SnsSqsClientConfig(
+            client_id=client_id,
+            sns_topic_arn=RESOURCES["client_request_topic"],
+            sqs_queue_url=RESOURCES["client_response_queue"],
+            transport_timeout_seconds=timeout,
+        )
+        return config, sqs_client, sns_client
+    elif transport_type == TRANSPORT_SQS:
+        config = SqsClientConfig(
+            client_id=client_id,
+            read_queue_url=RESOURCES["server_request_queue"],
+            response_queue_url=RESOURCES["client_response_queue"],
+            transport_timeout_seconds=timeout,
+        )
+        return config, sqs_client, None
+    else:
+        raise ValueError(f"Unsupported transport type: {transport_type}")
 
-    # Get or create server SQS queue
-    try:
-        queue_response = sqs_client.get_queue_url(QueueName=server_sqs_queue_name)
-        server_sqs_queue_url = queue_response["QueueUrl"]
-        logger.info(f"Using existing server SQS queue: {server_sqs_queue_url}")
-    except sqs_client.exceptions.QueueDoesNotExist:
-        queue_response = sqs_client.create_queue(QueueName=server_sqs_queue_name)
-        server_sqs_queue_url = queue_response["QueueUrl"]
-        logger.info(f"Created new server SQS queue: {server_sqs_queue_url}")
 
-    # Get or create server SNS topic for receiving client requests
-    try:
-        topics_response = sns_client.list_topics()
-        server_topic_arn = None
-        for topic in topics_response.get("Topics", []):
-            if server_sns_topic_name in topic["TopicArn"]:
-                server_topic_arn = topic["TopicArn"]
-                break
+def create_server_transport_config(
+    transport_type: str = TRANSPORT_SNS_SQS,
+) -> Union[
+    Tuple[SnsSqsServerConfig, Any, Any], Tuple[SqsServerConfig, Any, None], Tuple[WebhookServerConfig, None, None]
+]:
+    """Create a standard server transport configuration"""
+    if transport_type == TRANSPORT_WEBHOOK:
+        config = WebhookServerConfig()
+        return config, None, None
 
-        if not server_topic_arn:
-            topic_response = sns_client.create_topic(Name=server_sns_topic_name)
-            server_topic_arn = topic_response["TopicArn"]
-            logger.info(f"Created new server SNS topic: {server_topic_arn}")
-        else:
-            logger.info(f"Using existing server SNS topic: {server_topic_arn}")
+    sqs_client, sns_client = setup_aws_clients()
 
-        # Subscribe the server's SQS queue to the server's SNS topic
-        try:
-            # Get queue ARN for subscription
-            queue_attributes = sqs_client.get_queue_attributes(
-                QueueUrl=server_sqs_queue_url, AttributeNames=["QueueArn"]
-            )
-            queue_arn = queue_attributes["Attributes"]["QueueArn"]
-
-            subscription_response = sns_client.subscribe(TopicArn=server_topic_arn, Protocol="sqs", Endpoint=queue_arn)
-            logger.info(f"Subscribed server SQS queue to server topic: {subscription_response['SubscriptionArn']}")
-
-            # Set queue policy to allow SNS to send messages
-            policy = {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {
-                        "Effect": "Allow",
-                        "Principal": {"Service": "sns.amazonaws.com"},
-                        "Action": "sqs:SendMessage",
-                        "Resource": queue_arn,
-                        "Condition": {"ArnEquals": {"aws:SourceArn": server_topic_arn}},
-                    }
-                ],
-            }
-
-            sqs_client.set_queue_attributes(QueueUrl=server_sqs_queue_url, Attributes={"Policy": json.dumps(policy)})
-            logger.info(f"Set server queue policy to allow SNS messages from topic: {server_topic_arn}")
-
-        except Exception as e:
-            logger.warning(f"Error setting up server SNS-SQS subscription: {e}")
-
-    except Exception as e:
-        logger.error(f"Error handling server SNS topic: {e}")
-        topic_response = sns_client.create_topic(Name=server_sns_topic_name)
-        server_topic_arn = topic_response["TopicArn"]
-
-    # Create server configuration
-    config = SnsSqsServerConfig(
-        sqs_queue_url=server_sqs_queue_url,
-        max_messages=max_messages,
-        wait_time_seconds=wait_time_seconds,
-        poll_interval_seconds=poll_interval_seconds,
-    )
-
-    return config, sqs_client, sns_client
+    if transport_type == TRANSPORT_SNS_SQS:
+        config = SnsSqsServerConfig(
+            sqs_queue_url=RESOURCES["server_request_queue"],
+            max_messages=10,
+            wait_time_seconds=5,
+            poll_interval_seconds=1.0,
+        )
+        return config, sqs_client, sns_client
+    else:  # SQS only
+        config = SqsServerConfig(
+            read_queue_url=RESOURCES["server_request_queue"],
+            max_messages=10,
+            wait_time_seconds=5,
+            poll_interval_seconds=1.0,
+        )
+        return config, sqs_client, None
 
 
 def get_client_response_queue_url() -> str:
@@ -309,7 +265,6 @@ def receive_from_sqs(sqs_client, queue_url: str, wait_time: int = 5, max_message
     messages = []
     for sqs_message in response.get("Messages", []):
         try:
-            # Parse message body (handle SNS notification format)
             message_body = sqs_message["Body"]
 
             # Handle SNS notification format
@@ -372,171 +327,6 @@ def echo_tool(params: Dict[str, Any]) -> Dict[str, Any]:
     """Echo tool - returns the input message"""
     message = params.get("message", "")
     return {"echo": message, "timestamp": time.time()}
-
-
-def create_sns_sqs_client_config(
-    client_sqs_queue_name: str = "mcp-client-responses",
-    server_sns_topic_name: str = "mcp-server-requests",
-    client_id: str = "example-client",
-    region_name: str = "us-east-1",
-    endpoint_url: str = "http://localhost:4566",
-    max_messages: int = 10,
-    wait_time_seconds: int = 20,
-    poll_interval_seconds: float = 1.0,
-) -> Tuple[SnsSqsClientConfig, Any, Any, str]:
-    """
-    Create SNS/SQS client configuration with AWS clients.
-
-    Returns:
-        Tuple of (config, sqs_client, sns_client, client_topic_arn)
-    """
-    # Create AWS clients for LocalStack
-    sqs_client = boto3.client(
-        "sqs",
-        region_name=region_name,
-        endpoint_url=endpoint_url,
-        aws_access_key_id="test",
-        aws_secret_access_key="test",
-    )
-    sns_client = boto3.client(
-        "sns",
-        region_name=region_name,
-        endpoint_url=endpoint_url,
-        aws_access_key_id="test",
-        aws_secret_access_key="test",
-    )
-
-    # Get or create client SQS queue for responses
-    try:
-        queue_response = sqs_client.get_queue_url(QueueName=client_sqs_queue_name)
-        client_sqs_queue_url = queue_response["QueueUrl"]
-        logger.info(f"Using existing client SQS queue: {client_sqs_queue_url}")
-    except sqs_client.exceptions.QueueDoesNotExist:
-        queue_response = sqs_client.create_queue(QueueName=client_sqs_queue_name)
-        client_sqs_queue_url = queue_response["QueueUrl"]
-        logger.info(f"Created new client SQS queue: {client_sqs_queue_url}")
-
-    # Get or create server SNS topic for client requests
-    try:
-        topics_response = sns_client.list_topics()
-        server_topic_arn = None
-        for topic in topics_response.get("Topics", []):
-            if server_sns_topic_name in topic["TopicArn"]:
-                server_topic_arn = topic["TopicArn"]
-                break
-
-        if not server_topic_arn:
-            topic_response = sns_client.create_topic(Name=server_sns_topic_name)
-            server_topic_arn = topic_response["TopicArn"]
-            logger.info(f"Created new server SNS topic: {server_topic_arn}")
-        else:
-            logger.info(f"Using existing server SNS topic: {server_topic_arn}")
-    except Exception as e:
-        logger.error(f"Error handling SNS topic: {e}")
-        topic_response = sns_client.create_topic(Name=server_sns_topic_name)
-        server_topic_arn = topic_response["TopicArn"]
-
-    # Create client response topic (where server sends responses back to this client)
-    client_topic_name = f"mcp-client-{client_id}-responses"
-    try:
-        client_topic_response = sns_client.create_topic(Name=client_topic_name)
-        client_topic_arn = client_topic_response["TopicArn"]
-        logger.info(f"Created new client response topic: {client_topic_arn}")
-
-        # Subscribe the client's SQS queue to the client's response topic
-        # Convert the LocalStack URL to the ARN format that SNS expects
-        queue_attributes = sqs_client.get_queue_attributes(QueueUrl=client_sqs_queue_url, AttributeNames=["QueueArn"])
-        queue_arn = queue_attributes["Attributes"]["QueueArn"]
-
-        subscription_response = sns_client.subscribe(TopicArn=client_topic_arn, Protocol="sqs", Endpoint=queue_arn)
-        logger.info(f"Subscribed client SQS queue to response topic: {subscription_response['SubscriptionArn']}")
-
-        # Set queue policy to allow SNS to send messages
-        policy = {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Principal": {"Service": "sns.amazonaws.com"},
-                    "Action": "sqs:SendMessage",
-                    "Resource": queue_arn,
-                    "Condition": {"ArnEquals": {"aws:SourceArn": client_topic_arn}},
-                }
-            ],
-        }
-
-        sqs_client.set_queue_attributes(QueueUrl=client_sqs_queue_url, Attributes={"Policy": json.dumps(policy)})
-        logger.info(f"Set queue policy to allow SNS messages from topic: {client_topic_arn}")
-
-    except Exception as e:
-        logger.error(f"Error creating client topic and subscription: {e}")
-        raise
-
-    # Create client configuration
-    config = SnsSqsClientConfig(
-        sqs_queue_url=client_sqs_queue_url,
-        sns_topic_arn=server_topic_arn,
-        client_id=client_id,
-        max_messages=max_messages,
-        wait_time_seconds=wait_time_seconds,
-        poll_interval_seconds=poll_interval_seconds,
-    )
-
-    return config, sqs_client, sns_client, client_topic_arn
-
-
-def create_sqs_config(
-    queue_name: str = "mcp-processor",
-    response_queue_name: str = "mcp-consumer",
-    region_name: str = "us-east-1",
-    endpoint_url: str = "http://localhost:4566",
-    max_messages: int = 10,
-    wait_time_seconds: int = 20,
-    poll_interval_seconds: float = 1.0,
-) -> Union[Tuple[SnsSqsServerConfig, Any, Any], Tuple[SqsTransportConfig, Any, None]]:
-    """
-    Create SQS configuration with AWS clients.
-
-    Args:
-        queue_name: Name of the main SQS queue
-        response_queue_name: Name of the response queue
-        region_name: AWS region name
-        endpoint_url: LocalStack endpoint URL
-        max_messages: Maximum messages to process per batch
-        wait_time_seconds: Long polling wait time
-        poll_interval_seconds: Polling interval between batches
-
-    Returns:
-        Tuple of (config, sqs_client, sns_client) - sns_client is None for SQS-only
-    """
-    # Create AWS SQS client for LocalStack
-    sqs_client = boto3.client(
-        "sqs",
-        region_name=region_name,
-        endpoint_url=endpoint_url,
-        aws_access_key_id="test",
-        aws_secret_access_key="test",
-    )
-
-    # Get or create main SQS queue
-    queue_response = sqs_client.get_queue_url(QueueName=queue_name)
-    queue_url = queue_response["QueueUrl"]
-    logger.info(f"Using existing SQS queue: {queue_url}")
-
-    response_queue_response = sqs_client.get_queue_url(QueueName=response_queue_name)
-    response_queue_url = response_queue_response["QueueUrl"]
-    logger.info(f"Using existing response SQS queue: {response_queue_url}")
-
-    # Create configuration
-    config = SqsTransportConfig(
-        read_queue_url=queue_url,
-        response_queue_url=response_queue_url,
-        max_messages=max_messages,
-        wait_time_seconds=wait_time_seconds,
-        poll_interval_seconds=poll_interval_seconds,
-    )
-
-    return config, sqs_client, None
 
 
 async def cleanup_aws_resources(
