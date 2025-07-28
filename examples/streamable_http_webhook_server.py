@@ -45,6 +45,7 @@ async def fetch_website_sync(url: str) -> list[types.ContentBlock]:
     return [types.TextContent(type="text", text=f"[SSE] Quick fetch from {url}:\n\n{content}...")]
 
 
+@webhook_tool(description="Long-running analysis via webhook", tool_name="analyze_async")
 async def analyze_website_async(url: str) -> list[types.ContentBlock]:
     """
     Asynchronous website analyzer - uses Webhook delivery.
@@ -174,11 +175,6 @@ def main(server_port, stateless, json_response) -> int:
         else:
             raise ValueError(f"Unknown tool: {name}")
 
-    # Apply webhook tool decorator to the async analysis function
-    # This tells the transport to deliver results via webhook
-    analyze_website_async.__dict__["_webhook_tool"] = True
-    analyze_website_async.__dict__["_webhook_description"] = "Long-running analysis via webhook"
-
     @app.list_tools()
     async def list_tools() -> list[types.Tool]:
         return [
@@ -229,13 +225,9 @@ def main(server_port, stateless, json_response) -> int:
             stateless=stateless,
         )
 
-        # Manually set webhook tools to avoid discovery issues
-        session_manager.webhook_tools = {"analyze_async"}
-        logger.info(f"Manually configured webhook tools: {session_manager.webhook_tools}")
-
         print_colored("📡 Starting StreamableHTTP + Webhook session manager", "green")
         print_colored(f"🔗 Server listening on http://localhost:{server_port}/mcp", "blue")
-        print_colored("📄 Webhook tools manually configured", "blue")
+        print_colored("📄 Webhook tools automatically discovered", "blue")
 
         # Enable debug logging to see what's happening
         logging.basicConfig(level=logging.DEBUG)

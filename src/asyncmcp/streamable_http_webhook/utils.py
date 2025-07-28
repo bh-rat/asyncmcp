@@ -10,8 +10,9 @@ import re
 import uuid
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Literal, Optional, Set
 
+import anyio
 import httpx
 import mcp.types as types
 import orjson
@@ -38,6 +39,7 @@ SESSION_ID_PATTERN = re.compile(r"^[\x21-\x7E]+$")
 # Type aliases
 StreamId = str
 EventId = str
+ResponseType = Literal["webhook", "sse", "json"]
 
 
 @dataclass
@@ -90,7 +92,7 @@ class SessionInfo:
     state: str  # "init_pending", "initialized", "closed"
 
 
-def webhook_tool(description: Optional[str] = None, **metadata: Any):
+def webhook_tool(description: Optional[str] = None, tool_name: Optional[str] = None, **metadata: Any):
     """
     Decorator to mark a tool for webhook delivery.
 
@@ -100,19 +102,20 @@ def webhook_tool(description: Optional[str] = None, **metadata: Any):
 
     Args:
         description: Optional description of why this tool uses webhooks
+        tool_name: Optional tool name (defaults to function name)
         **metadata: Additional metadata for the tool-webhook association
 
     Example:
-        @app.call_tool()
-        @webhook_tool(description="Long-running analysis")
-        async def analyze_content(name: str, arguments: dict):
+        @webhook_tool(description="Long-running analysis", tool_name="analyze_async")
+        async def analyze_website_async(url: str):
             # This tool's result will be delivered via webhook
-            return await perform_analysis(arguments["url"])
+            return await perform_analysis(url)
     """
 
     def decorator(func):
         func._webhook_tool = True
         func._webhook_description = description
+        func._webhook_tool_name = tool_name or func.__name__
         func._webhook_metadata = metadata
         return func
 
@@ -156,26 +159,6 @@ def extract_webhook_url_from_meta(message: JSONRPCMessage) -> Optional[str]:
         return None
 
     return meta.get("webhookUrl")
-
-
-def extract_webhook_tools_from_meta(message: JSONRPCMessage) -> Set[str]:
-    """Extract webhook tools list from the _meta field of an MCP message."""
-    if not isinstance(message.root, types.JSONRPCRequest):
-        return set()
-
-    params = message.root.params
-    if not isinstance(params, dict):
-        return set()
-
-    meta = params.get("_meta")
-    if not isinstance(meta, dict):
-        return set()
-
-    webhook_tools = meta.get("webhookTools", [])
-    if isinstance(webhook_tools, list):
-        return set(webhook_tools)
-
-    return set()
 
 
 def create_http_headers(
@@ -232,8 +215,6 @@ async def send_webhook_response(
             last_error = e
             if attempt < max_retries:
                 logger.warning(f"Webhook delivery attempt {attempt + 1} failed to {webhook_url}: {e}, retrying...")
-                import anyio
-
                 await anyio.sleep(0.1 * (attempt + 1))  # Brief exponential backoff
             else:
                 logger.error(f"Failed to send webhook response to {webhook_url} after {max_retries + 1} attempts: {e}")

@@ -13,6 +13,7 @@ from typing import Awaitable, Callable, Dict, Optional, Set, Tuple
 import anyio
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from mcp.server.transport_security import TransportSecurityMiddleware
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -35,13 +36,14 @@ from starlette.types import Receive, Scope, Send
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
 from asyncmcp.common.server import ServerTransport
 
-from .routing import ToolRouter
+from .routing import ToolRouter, extract_tool_name_from_request
 from .utils import (
     CONTENT_TYPE_JSON,
     CONTENT_TYPE_SSE,
     MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
     EventMessage,
+    ResponseType,
     StreamableHTTPWebhookConfig,
     create_error_response,
     create_event_data,
@@ -93,7 +95,7 @@ class StreamableHTTPWebhookTransport(ServerTransport):
         self.initialization_complete = False  # Track local initialization state
 
         # Tool router for message routing decisions
-        self.tool_router = ToolRouter(self.webhook_tools)
+        self.tool_router = ToolRouter(self.webhook_tools, self._get_response_type)
 
         # Request streams for SSE (like MCP StreamableHTTP)
         self._request_streams: Dict[
@@ -101,6 +103,7 @@ class StreamableHTTPWebhookTransport(ServerTransport):
             Tuple[
                 MemoryObjectSendStream[EventMessage],
                 MemoryObjectReceiveStream[EventMessage],
+                ResponseType,
             ],
         ] = {}
 
@@ -120,8 +123,14 @@ class StreamableHTTPWebhookTransport(ServerTransport):
     def update_webhook_tools(self, webhook_tools: Set[str]) -> None:
         """Update the set of webhook tools."""
         self.webhook_tools = webhook_tools
-        self.tool_router = ToolRouter(webhook_tools)
+        self.tool_router = ToolRouter(webhook_tools, self._get_response_type)
         logger.debug(f"Updated webhook tools for session {self.session_id}: {webhook_tools}")
+
+    def _get_response_type(self, request_id: str) -> Optional[str]:
+        """Get the response type for a given request ID."""
+        if request_id in self._request_streams:
+            return self._request_streams[request_id][2]
+        return None
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Application entry point that handles all HTTP requests (matches MCP StreamableHTTP interface)."""
@@ -138,8 +147,6 @@ class StreamableHTTPWebhookTransport(ServerTransport):
 
         # Validate request headers for DNS rebinding protection (if configured)
         if self.config.security_settings:
-            from mcp.server.transport_security import TransportSecurityMiddleware
-
             security = TransportSecurityMiddleware(self.config.security_settings)
             is_post = request.method == "POST"
             error_response = await security.validate_request(request, is_post=is_post)
@@ -308,8 +315,19 @@ class StreamableHTTPWebhookTransport(ServerTransport):
             # Handle request
             request_id = str(message.root.id)
 
-            # Register this stream for the request ID
-            self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](0)
+            # Determine response type based on tool call
+            response_type: ResponseType = "sse"  # Default to SSE
+            if isinstance(message.root, JSONRPCRequest) and message.root.method == "tools/call":
+                # Extract tool name and check if it's a webhook tool
+                metadata = ServerMessageMetadata(request_context=request)
+                session_message_for_parsing = SessionMessage(message, metadata=metadata)
+                tool_name = extract_tool_name_from_request(session_message_for_parsing)
+                if tool_name and tool_name in self.webhook_tools:
+                    response_type = "webhook"
+
+            # Register this stream for the request ID with response type
+            stream_tuple = anyio.create_memory_object_stream[EventMessage](0)
+            self._request_streams[request_id] = (stream_tuple[0], stream_tuple[1], response_type)
             request_stream_reader = self._request_streams[request_id][1]
 
             if self.is_json_response_enabled:
@@ -492,7 +510,8 @@ class StreamableHTTPWebhookTransport(ServerTransport):
 
         async def standalone_sse_writer():
             try:
-                self._request_streams[GET_STREAM_KEY] = anyio.create_memory_object_stream[EventMessage](0)
+                stream_tuple = anyio.create_memory_object_stream[EventMessage](0)
+                self._request_streams[GET_STREAM_KEY] = (stream_tuple[0], stream_tuple[1], "sse")
                 standalone_stream_reader = self._request_streams[GET_STREAM_KEY][1]
 
                 async with sse_stream_writer, standalone_stream_reader:
@@ -627,22 +646,15 @@ class StreamableHTTPWebhookTransport(ServerTransport):
 
     async def _handle_initialize_message(self, message: JSONRPCMessage) -> None:
         """Extract webhook information from initialize request."""
-        from .utils import extract_webhook_tools_from_meta, extract_webhook_url_from_meta
+        from .utils import extract_webhook_url_from_meta
 
         if isinstance(message.root, JSONRPCRequest):
-            # Extract webhook URL and tools from _meta field
+            # Extract webhook URL from _meta field
             webhook_url = extract_webhook_url_from_meta(message)
-            webhook_tools_from_meta = extract_webhook_tools_from_meta(message)
 
             if webhook_url:
                 self.set_webhook_url(webhook_url)
                 logger.debug(f"Extracted webhook URL from initialize: {webhook_url}")
-
-            if webhook_tools_from_meta:
-                # Combine with existing webhook tools
-                combined_tools = self.webhook_tools.union(webhook_tools_from_meta)
-                self.update_webhook_tools(combined_tools)
-                logger.debug(f"Updated webhook tools from initialize: {combined_tools}")
 
     async def send_to_client_webhook(self, session_message: SessionMessage) -> None:
         """Send a message to the client's webhook URL."""

@@ -57,6 +57,15 @@ AsyncMCP provides three different transport implementations for different use ca
 - **Features**: HTTP-based, firewall-friendly, web-native integration
 - **Use Case**: Web applications, microservices, HTTP-based architectures
 
+### 4. StreamableHTTP + Webhook Transport
+
+**Best for**: Hybrid scenarios requiring both immediate and asynchronous responses
+
+- **Server**: Uses MCP's StreamableHTTP with SSE for standard tools, webhook POST for async tools marked with `@webhook_tool`
+- **Client**: Receives immediate responses via SSE stream, async responses via webhook URL
+- **Features**: Selective transport routing, single session management, built on MCP StreamableHTTP base
+- **Use Case**: Applications with mixed synchronous/asynchronous operations, real-time + batch processing
+
 ## Installation and Usage
 
 ```bash
@@ -237,6 +246,76 @@ uvicorn app:asgi_app --host 0.0.0.0 --port 8000 --workers 4
 
 5. **Monitor webhook delivery** and implement retry logic in clients if needed
 
+### StreamableHTTP + Webhook Transport
+
+#### Server Setup
+```python
+import anyio
+from asyncmcp.streamable_http_webhook.manager import StreamableHTTPWebhookSessionManager
+from asyncmcp import StreamableHTTPWebhookConfig, webhook_tool
+from mcp.server.lowlevel import Server
+
+# Configure transport
+config = StreamableHTTPWebhookConfig(
+    json_response=False,  # Use SSE streaming
+    timeout_seconds=30.0,
+    webhook_timeout=30.0,
+    webhook_max_retries=1
+)
+
+# Create MCP server
+app = Server("streamable-http-webhook-server")
+
+# Register tools with selective webhook routing
+@app.call_tool()
+async def handle_tools(name: str, arguments: dict):
+    if name == "quick_tool":
+        # Standard tool - uses SSE streaming
+        return [{"type": "text", "text": "Quick response via SSE"}]
+    elif name == "async_tool":
+        # Webhook tool - uses async webhook delivery
+        await asyncio.sleep(5)  # Simulate long processing
+        return [{"type": "text", "text": "Async response via webhook"}]
+
+# Mark async tools with decorator
+@webhook_tool(description="Long-running async tool", tool_name="async_tool")
+async def async_tool_handler(arg: str):
+    # This will be delivered via webhook
+    return [{"type": "text", "text": f"Processed {arg} asynchronously"}]
+
+async def main():
+    session_manager = StreamableHTTPWebhookSessionManager(
+        app, config, server_path="/mcp", stateless=False
+    )
+    async with session_manager.run():
+        # Deploy with uvicorn or similar ASGI server
+        await anyio.sleep_forever()
+```
+
+#### Client Setup
+```python
+from asyncmcp import streamable_http_webhook_client, StreamableHTTPWebhookClientConfig
+
+# Configure transport
+config = StreamableHTTPWebhookClientConfig(
+    server_url="http://localhost:8000/mcp",
+    webhook_url="http://localhost:8001/webhook",
+    client_id="my-client",
+    timeout_seconds=30.0,
+    max_retries=1
+)
+
+async def main():
+    async with streamable_http_webhook_client(config) as (read_stream, write_stream, client):
+        # Get webhook callback for handling async responses
+        webhook_callback = await client.get_webhook_callback()
+        
+        # Set up webhook server to receive async responses
+        # Standard tools get immediate SSE responses
+        # Webhook-decorated tools get async webhook responses
+        pass
+```
+
 ## Working Examples
 
 Complete working examples are available in the `/examples/` directory:
@@ -266,6 +345,15 @@ uv run examples/webhook_server.py --server-port 8000
 
 # Terminal 2: Start webhook client
 uv run examples/webhook_client.py --server-port 8000 --webhook-port 8001
+```
+
+### StreamableHTTP + Webhook Examples
+```bash
+# Terminal 1: Start StreamableHTTP + Webhook server
+uv run examples/streamable_http_webhook_server.py --server-port 8000
+
+# Terminal 2: Start StreamableHTTP + Webhook client  
+uv run examples/streamable_http_webhook_client.py --server-url http://localhost:8000/mcp --webhook-url http://localhost:8001/webhook
 ```
 
 **Setup Requirements**: For AWS-based transports (SNS+SQS, SQS), you need LocalStack running locally. See `/examples/README.md` for detailed setup instructions.

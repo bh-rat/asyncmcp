@@ -41,6 +41,9 @@ uv run website_server.py --transport sqs
 
 # Using Webhook transport
 uv run webhook_server.py --server-port 8000
+
+# Using StreamableHTTP + Webhook transport
+uv run streamable_http_webhook_server.py --server-port 8000
 ```
 
 The SQS/Webhook server will:
@@ -60,6 +63,9 @@ uv run website_client.py --transport sqs
 
 # Using Webhook transport
 uv run webhook_client.py --server-port 8000 --webhook-port 8001
+
+# Using StreamableHTTP + Webhook transport
+uv run streamable_http_webhook_client.py --server-url http://localhost:8000/mcp --webhook-url http://localhost:8001/webhook
 ```
 
 The SQS/Webhook client will:
@@ -148,3 +154,73 @@ uv run webhook_client.py --server-port 8000 --webhook-port 8001
 ```
 
 The MCP communication happens through HTTP requests and webhook responses.
+
+## StreamableHTTP + Webhook Transport
+
+### StreamableHTTP + Webhook Flow
+
+1. **Initialization**: Client sends `initialize` request with webhook URL in `_meta` field
+2. **Session Creation**: Server creates session and stores webhook URL for selective tool routing
+3. **Tool Routing**: 
+   - Standard tools use StreamableHTTP with SSE streaming (immediate response)
+   - Tools marked with `@webhook_tool` decorator use webhook delivery (async response)
+4. **Dual Response Handling**: Single session supports both immediate SSE responses and async webhook callbacks
+
+### Key Features
+
+- **Selective Transport**: Tools automatically routed based on `@webhook_tool` decorator
+- **Single Session**: Both SSE and webhook responses share the same session ID
+- **StreamableHTTP Base**: Built on MCP's StreamableHTTP transport with webhook extensions
+- **Async Tool Support**: Long-running operations delivered via webhook without blocking SSE stream
+
+### Usage
+
+```bash
+# Terminal 1: Start StreamableHTTP + Webhook server
+uv run streamable_http_webhook_server.py --server-port 8000
+
+# Terminal 2: Start StreamableHTTP + Webhook client
+uv run streamable_http_webhook_client.py --server-url http://localhost:8000/mcp --webhook-url http://localhost:8001/webhook
+```
+
+### Example Session
+
+```
+🔗 StreamableHTTP + Webhook MCP Client
+🚀 Interactive client with SSE and Webhook support
+💡 Tools are automatically routed to SSE or Webhook delivery!
+
+[StreamableHTTP+Webhook] > init
+🔄 Initializing client session...
+✅ Client session initialized
+📋 Server: mcp-streamable-http-webhook-server
+
+[StreamableHTTP+Webhook] > tools
+📋 Listing available tools...
+✅ Found 3 tools:
+   • fetch_sync (📡 SSE): Fetch website content synchronously via StreamableHTTP SSE
+   • analyze_async (🌐 Webhook): Perform deep website analysis asynchronously via webhook transport
+   • server_info (📡 SSE): Get StreamableHTTP + Webhook server information and routing details
+
+[StreamableHTTP+Webhook] > call fetch_sync url=https://google.com
+🔄 Calling fetch_sync (📡 SSE)...
+📡 Waiting for SSE response...
+📄 [SSE] Response:
+[SSE] Quick fetch from https://google.com:
+
+<!doctype html><html itemscope="" ...
+
+[StreamableHTTP+Webhook] > call analyze_async url=https://example.com  
+🔄 Calling analyze_async (🌐 Webhook)...
+⏳ Webhook response will arrive via webhook...
+
+📥 [Webhook Response Received]
+📄 Response:
+[WEBHOOK] Deep Analysis Results for https://example.com
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Processing: Completed via Webhook (Async)
+⏱️  Processing Time: ~5 seconds
+...
+```
+
+The MCP communication combines StreamableHTTP SSE streaming for immediate responses with webhook POST delivery for async operations.

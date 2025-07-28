@@ -13,7 +13,7 @@ from .client import (
     StreamableHTTPWebhookTransport as StreamableHTTPWebhookClientTransport,
 )
 from .manager import StreamableHTTPWebhookSessionManager
-from .routing import ToolRouter, discover_webhook_tools
+from .routing import ToolRouter
 from .server import StreamableHTTPWebhookTransport as StreamableHTTPWebhookServerTransport
 from .utils import StreamableHTTPWebhookClientConfig, StreamableHTTPWebhookConfig, webhook_tool
 
@@ -27,5 +27,4 @@ __all__ = [
     "StreamableHTTPWebhookClientConfig",
     "webhook_tool",
     "ToolRouter",
-    "discover_webhook_tools",
 ]

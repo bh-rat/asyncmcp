@@ -5,6 +5,7 @@ This module provides session management for the StreamableHTTP + Webhook transpo
 following AsyncMCP's session manager patterns while providing full MCP compatibility.
 """
 
+import inspect
 import logging
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
@@ -15,6 +16,7 @@ from anyio.abc import TaskGroup, TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.server.lowlevel.server import Server as MCPServer
 from starlette.requests import Request
+from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from asyncmcp.common.outgoing_event import OutgoingMessageEvent
@@ -25,6 +27,7 @@ from .utils import (
     SessionInfo,
     StreamableHTTPWebhookConfig,
     generate_session_id,
+    is_webhook_tool,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,10 +62,9 @@ class StreamableHTTPWebhookSessionManager:
         self.server_path = server_path
         self.stateless = stateless
 
-        # Skip automatic webhook tool discovery to avoid ContextVar issues
-        # Tools will be manually configured by the server
-        self.webhook_tools = set()
-        logger.info("Webhook tool discovery disabled - tools will be manually configured")
+        # Automatically discover webhook tools from the MCP server
+        self.webhook_tools = self._discover_webhook_tools()
+        logger.info(f"Discovered webhook tools: {self.webhook_tools}")
 
         # Session management
         self._session_lock = anyio.Lock()
@@ -80,6 +82,41 @@ class StreamableHTTPWebhookSessionManager:
         self._task_group: Optional[TaskGroup] = None
         self._run_lock = anyio.Lock()
         self._has_started = False
+
+    def _discover_webhook_tools(self) -> set[str]:
+        """
+        Discover webhook tools by examining functions in the caller's module.
+
+        Since MCP servers use a single dispatcher pattern, we need to inspect
+        the actual tool functions in the module where the server is defined.
+
+        Returns:
+            Set of tool names that are marked with @webhook_tool decorator
+        """
+
+        webhook_tools = set()
+
+        try:
+            # Get the frame that called this (the server initialization)
+            frame = inspect.currentframe()
+            if frame and frame.f_back and frame.f_back.f_back:
+                # Go up two levels: _discover_webhook_tools -> __init__ -> server module
+                caller_frame = frame.f_back.f_back
+                caller_globals = caller_frame.f_globals
+
+                # Look for functions with @webhook_tool decorator in the caller's module
+                for name, obj in caller_globals.items():
+                    if inspect.isfunction(obj) and is_webhook_tool(obj):
+                        # Extract tool name from function name or use function name as default
+                        tool_name = getattr(obj, "_webhook_tool_name", name)
+                        webhook_tools.add(tool_name)
+                        logger.debug(f"Found webhook tool: {tool_name} (function: {name})")
+
+        except Exception as e:
+            logger.warning(f"Failed to discover webhook tools via introspection: {e}")
+            logger.info("Falling back to empty webhook tools set - tools can be manually configured")
+
+        return webhook_tools
 
     @asynccontextmanager
     async def run(self):
@@ -210,8 +247,6 @@ class StreamableHTTPWebhookSessionManager:
                 )
                 self._sessions[new_session_id] = session_info
 
-                logger.info(f"Created new transport with session ID: {new_session_id}")
-
                 # Define the server runner
                 async def run_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
                     async with http_transport.connect() as streams:
@@ -256,7 +291,6 @@ class StreamableHTTPWebhookSessionManager:
                 await http_transport.handle_request(scope, receive, send)
         else:
             # Invalid session ID
-            from starlette.responses import Response
 
             response = Response(
                 "Bad Request: No valid session ID provided",
@@ -273,7 +307,6 @@ class StreamableHTTPWebhookSessionManager:
         async with self._session_lock:
             if session_id in self._sessions:
                 self._sessions[session_id].state = "initialized"
-                logger.info(f"Session {session_id} marked as initialized")
             else:
                 logger.warning(f"Received initialization callback for unknown session: {session_id}")
 

@@ -10,11 +10,15 @@ This client demonstrates:
 """
 
 import asyncio
+import time
 import json
 import logging
 import anyio
 import click
 import uvicorn
+import sys
+import traceback
+
 from shared import print_colored, send_mcp_request, send_mcp_notification, DEFAULT_INIT_PARAMS
 from starlette.applications import Starlette
 from starlette.routing import Route
@@ -39,7 +43,6 @@ class InteractiveStreamableHTTPWebhookClient:
 
         # Set up logging
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        self.logger.setLevel(logging.DEBUG)
 
     async def handle_webhook_response(self, response_data):
         """Handle webhook response and display it."""
@@ -58,8 +61,6 @@ class InteractiveStreamableHTTPWebhookClient:
                 print(str(response_data))
 
             print("\n[StreamableHTTP+Webhook] > ", end="")
-            import sys
-
             sys.stdout.flush()
 
         except Exception as e:
@@ -93,7 +94,6 @@ class InteractiveStreamableHTTPWebhookClient:
                     print_colored(f"❌ Transport error: {message}", "red")
                     continue
 
-                self.logger.debug(f"Received message: {message}")
                 # Handle the message
                 await self.handle_message(message)
         except Exception as e:
@@ -140,8 +140,6 @@ class InteractiveStreamableHTTPWebhookClient:
 
     async def wait_for_response_by_id(self, request_id, timeout=10.0):
         """Wait for a specific response by request ID."""
-        import time
-
         start_time = time.time()
         self.logger.debug(f"Waiting for response with ID: {request_id}")
 
@@ -190,8 +188,6 @@ class InteractiveStreamableHTTPWebhookClient:
             print_colored("🔄 Initializing client session...", "cyan")
             try:
                 # Send proper MCP initialize request
-                import time
-
                 request_id = int(time.time() * 1000) % 100000
                 self.logger.debug(f"Sending initialize request with ID: {request_id}")
 
@@ -225,8 +221,6 @@ class InteractiveStreamableHTTPWebhookClient:
 
             except Exception as e:
                 print_colored(f"❌ Initialization failed: {e}", "red")
-                import traceback
-
                 print_colored(f"Traceback: {traceback.format_exc()}", "red")
 
         elif cmd == "tools":
@@ -240,9 +234,6 @@ class InteractiveStreamableHTTPWebhookClient:
 
             try:
                 print_colored("📋 Listing available tools...", "blue")
-
-                # Send proper MCP tools/list request
-                import time
 
                 request_id = int(time.time() * 1000) % 100000
 
@@ -270,8 +261,6 @@ class InteractiveStreamableHTTPWebhookClient:
 
             except Exception as e:
                 print_colored(f"❌ Failed to list tools: {e}", "red")
-                import traceback
-
                 print_colored(f"Traceback: {traceback.format_exc()}", "red")
 
         elif cmd == "call":
@@ -306,8 +295,6 @@ class InteractiveStreamableHTTPWebhookClient:
                 print_colored(f"🔄 Calling {tool_name} ({delivery_type})...", "cyan")
 
                 # Send proper MCP tools/call request
-                import time
-
                 request_id = int(time.time() * 1000) % 100000
 
                 call_params = {"name": tool_name, "arguments": arguments}
@@ -333,8 +320,6 @@ class InteractiveStreamableHTTPWebhookClient:
 
             except Exception as e:
                 print_colored(f"❌ Tool call failed: {e}", "red")
-                import traceback
-
                 print_colored(f"Traceback: {traceback.format_exc()}", "red")
 
         elif cmd == "status":
@@ -385,11 +370,6 @@ async def run_client_session(config: StreamableHTTPWebhookClientConfig):
 
     async with streamable_http_webhook_client(config) as (read_stream, write_stream, client):
         print_colored("🔗 Connected to StreamableHTTP + Webhook transport", "green")
-
-        # Set webhook tools on the transport (if any are known)
-        # In a real application, you would determine these from server capabilities or configuration
-        webhook_tools = {"analyze_async"}  # Tools that should use webhook delivery
-        client.set_webhook_tools(webhook_tools)
 
         # Get webhook callback for web app integration
         webhook_callback = await client.get_webhook_callback()
@@ -506,8 +486,6 @@ def main(server_url, webhook_url, client_id) -> int:
         print_colored("\n👋 Client stopped", "yellow")
         return 0
     except Exception as e:
-        import traceback
-
         print_colored(f"❌ Client error: {e}", "red")
         print_colored(f"Traceback: {traceback.format_exc()}", "red")
         return 1

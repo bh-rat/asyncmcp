@@ -150,7 +150,6 @@ class StreamableHTTPWebhookTransport:
         new_session_id = response.headers.get(MCP_SESSION_ID_HEADER)
         if new_session_id:
             self.session_id = new_session_id
-            logger.info(f"Received session ID: {self.session_id}")
 
     def _maybe_extract_protocol_version_from_message(
         self,
@@ -162,7 +161,6 @@ class StreamableHTTPWebhookTransport:
                 # Parse the result as InitializeResult for type safety
                 init_result = InitializeResult.model_validate(message.root.result)
                 self.protocol_version = str(init_result.protocolVersion)
-                logger.info(f"Negotiated protocol version: {self.protocol_version}")
             except Exception as exc:
                 logger.warning(f"Failed to parse initialization response as InitializeResult: {exc}")
                 logger.warning(f"Raw result: {message.root.result}")
@@ -178,10 +176,6 @@ class StreamableHTTPWebhookTransport:
 
         # Add webhook URL to _meta
         meta["webhookUrl"] = self.webhook_url
-
-        # Add webhook tools list if we have any
-        if self.webhook_tools:
-            meta["webhookTools"] = list(self.webhook_tools)
 
         params["_meta"] = meta
         message_dict["params"] = params
@@ -509,7 +503,6 @@ class StreamableHTTPWebhookClient:
             config: Client configuration
             webhook_path: Path for webhook endpoint (for reference)
         """
-        # Create transport with proper parameters
         self.transport = StreamableHTTPWebhookTransport(
             url=config.server_url,
             webhook_url=config.webhook_url,
@@ -524,9 +517,6 @@ class StreamableHTTPWebhookClient:
         self.read_stream_writer: Optional[MemoryObjectSendStream[SessionMessage | Exception]] = None
         self.read_stream: Optional[MemoryObjectReceiveStream[SessionMessage | Exception]] = None
         self.write_stream: Optional[MemoryObjectSendStream[SessionMessage]] = None
-
-        # SSE stream task (will be managed by context manager)
-        self.sse_task: Optional[Any] = None
 
     async def handle_webhook_request(self, request: Request) -> Response:
         """
@@ -673,10 +663,8 @@ async def streamable_http_webhook_client(
                 timeout=httpx.Timeout(transport.timeout, read=transport.sse_read_timeout),
                 auth=transport.auth,
             ) as http_client:
-                # Set HTTP client on client wrapper
                 client.http_client = http_client
 
-                # Define callbacks that need access to tg
                 def start_get_stream() -> None:
                     tg.start_soon(transport.handle_get_stream, http_client, read_stream_writer)
 
