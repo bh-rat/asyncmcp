@@ -7,6 +7,8 @@
 
 
 
+
+
 ---
 
 ## Overview
@@ -15,6 +17,12 @@
 A regular MCP Server but working over queues :
 
 https://github.com/user-attachments/assets/4b775ff8-02ae-4730-a822-3e1cedf9d744
+
+
+Another MCP Server that sends async responses via Webhooks : 
+
+https://github.com/user-attachments/assets/22f15a96-13bf-4038-8e80-938d9ee490c9
+
 
 
 Quoting from the [official description](https://modelcontextprotocol.io/introduction) :<br/> 
