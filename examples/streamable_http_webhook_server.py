@@ -217,17 +217,19 @@ def main(server_port, stateless, json_response) -> int:
             webhook_max_retries=1,
         )
 
-        # Create session manager with manual webhook tools specification
+        # Create session manager with explicit webhook tools specification
+        webhook_tools = {"analyze_async"}  # Explicitly specify which tools use webhooks
         session_manager = StreamableHTTPWebhookSessionManager(
             app,
             config,
             server_path="/mcp",
             stateless=stateless,
+            webhook_tools=webhook_tools,
         )
 
         print_colored("📡 Starting StreamableHTTP + Webhook session manager", "green")
         print_colored(f"🔗 Server listening on http://localhost:{server_port}/mcp", "blue")
-        print_colored("📄 Webhook tools automatically discovered", "blue")
+        print_colored(f"📄 Webhook tools configured: {webhook_tools}", "blue")
 
         # Enable debug logging to see what's happening
         logging.basicConfig(level=logging.DEBUG)

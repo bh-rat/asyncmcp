@@ -69,9 +69,9 @@ AsyncMCP provides three different transport implementations for different use ca
 
 **Best for**: Hybrid scenarios requiring both immediate and asynchronous responses
 
-- **Server**: Uses MCP's StreamableHTTP with SSE for standard tools, webhook POST for async tools marked with `@webhook_tool`
+- **Server**: Uses MCP's StreamableHTTP with SSE for standard tools, webhook POST for async tools explicitly configured via `webhook_tools` parameter
 - **Client**: Receives immediate responses via SSE stream, async responses via webhook URL
-- **Features**: Selective transport routing, single session management, built on MCP StreamableHTTP base
+- **Features**: Selective transport routing with explicit tool configuration, single session management, built on MCP StreamableHTTP base
 - **Use Case**: Applications with mixed synchronous/asynchronous operations, real-time + batch processing
 
 ## Installation and Usage
@@ -258,6 +258,7 @@ uvicorn app:asgi_app --host 0.0.0.0 --port 8000 --workers 4
 
 #### Server Setup
 ```python
+import asyncio
 import anyio
 from asyncmcp.streamable_http_webhook.manager import StreamableHTTPWebhookSessionManager
 from asyncmcp import StreamableHTTPWebhookConfig, webhook_tool
@@ -285,15 +286,22 @@ async def handle_tools(name: str, arguments: dict):
         await asyncio.sleep(5)  # Simulate long processing
         return [{"type": "text", "text": "Async response via webhook"}]
 
-# Mark async tools with decorator
+# Mark async tools with decorator (optional - used for documentation)
 @webhook_tool(description="Long-running async tool", tool_name="async_tool")
 async def async_tool_handler(arg: str):
     # This will be delivered via webhook
     return [{"type": "text", "text": f"Processed {arg} asynchronously"}]
 
 async def main():
+    # Explicitly specify which tools should use webhook delivery
+    webhook_tools = {"async_tool"}  # Tools that will be delivered via webhook
+    
     session_manager = StreamableHTTPWebhookSessionManager(
-        app, config, server_path="/mcp", stateless=False
+        app, 
+        config, 
+        server_path="/mcp", 
+        stateless=False,
+        webhook_tools=webhook_tools  # Explicit webhook tool registration
     )
     async with session_manager.run():
         # Deploy with uvicorn or similar ASGI server

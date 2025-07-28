@@ -163,12 +163,12 @@ The MCP communication happens through HTTP requests and webhook responses.
 2. **Session Creation**: Server creates session and stores webhook URL for selective tool routing
 3. **Tool Routing**: 
    - Standard tools use StreamableHTTP with SSE streaming (immediate response)
-   - Tools marked with `@webhook_tool` decorator use webhook delivery (async response)
+   - Tools explicitly configured in `webhook_tools` parameter use webhook delivery (async response)
 4. **Dual Response Handling**: Single session supports both immediate SSE responses and async webhook callbacks
 
 ### Key Features
 
-- **Selective Transport**: Tools automatically routed based on `@webhook_tool` decorator
+- **Selective Transport**: Tools explicitly routed based on `webhook_tools` configuration parameter
 - **Single Session**: Both SSE and webhook responses share the same session ID
 - **StreamableHTTP Base**: Built on MCP's StreamableHTTP transport with webhook extensions
 - **Async Tool Support**: Long-running operations delivered via webhook without blocking SSE stream

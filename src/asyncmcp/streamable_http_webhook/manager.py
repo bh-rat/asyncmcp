@@ -5,10 +5,9 @@ This module provides session management for the StreamableHTTP + Webhook transpo
 following AsyncMCP's session manager patterns while providing full MCP compatibility.
 """
 
-import inspect
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 import anyio
 import httpx
@@ -27,7 +26,6 @@ from .utils import (
     SessionInfo,
     StreamableHTTPWebhookConfig,
     generate_session_id,
-    is_webhook_tool,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,6 +45,7 @@ class StreamableHTTPWebhookSessionManager:
         config: StreamableHTTPWebhookConfig,
         server_path: str = "/mcp",
         stateless: bool = False,
+        webhook_tools: Optional[Set[str]] = None,
     ):
         """
         Initialize the session manager.
@@ -56,15 +55,17 @@ class StreamableHTTPWebhookSessionManager:
             config: Transport configuration
             server_path: HTTP endpoint path
             stateless: Whether to run in stateless mode
+            webhook_tools: Set of tool names that should be handled via webhook.
+                          If None, no tools will be routed to webhooks.
         """
         self.app = app
         self.config = config
         self.server_path = server_path
         self.stateless = stateless
 
-        # Automatically discover webhook tools from the MCP server
-        self.webhook_tools = self._discover_webhook_tools()
-        logger.info(f"Discovered webhook tools: {self.webhook_tools}")
+        # Use explicitly provided webhook tools
+        self.webhook_tools = webhook_tools or set()
+        logger.info(f"Configured webhook tools: {self.webhook_tools}")
 
         # Session management
         self._session_lock = anyio.Lock()
@@ -82,41 +83,6 @@ class StreamableHTTPWebhookSessionManager:
         self._task_group: Optional[TaskGroup] = None
         self._run_lock = anyio.Lock()
         self._has_started = False
-
-    def _discover_webhook_tools(self) -> set[str]:
-        """
-        Discover webhook tools by examining functions in the caller's module.
-
-        Since MCP servers use a single dispatcher pattern, we need to inspect
-        the actual tool functions in the module where the server is defined.
-
-        Returns:
-            Set of tool names that are marked with @webhook_tool decorator
-        """
-
-        webhook_tools = set()
-
-        try:
-            # Get the frame that called this (the server initialization)
-            frame = inspect.currentframe()
-            if frame and frame.f_back and frame.f_back.f_back:
-                # Go up two levels: _discover_webhook_tools -> __init__ -> server module
-                caller_frame = frame.f_back.f_back
-                caller_globals = caller_frame.f_globals
-
-                # Look for functions with @webhook_tool decorator in the caller's module
-                for name, obj in caller_globals.items():
-                    if inspect.isfunction(obj) and is_webhook_tool(obj):
-                        # Extract tool name from function name or use function name as default
-                        tool_name = getattr(obj, "_webhook_tool_name", name)
-                        webhook_tools.add(tool_name)
-                        logger.debug(f"Found webhook tool: {tool_name} (function: {name})")
-
-        except Exception as e:
-            logger.warning(f"Failed to discover webhook tools via introspection: {e}")
-            logger.info("Falling back to empty webhook tools set - tools can be manually configured")
-
-        return webhook_tools
 
     @asynccontextmanager
     async def run(self):
