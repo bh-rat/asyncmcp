@@ -82,7 +82,9 @@ class TestWebhookTransport:
         with patch("asyncmcp.webhook.server.send_webhook_response") as mock_send:
             await transport.send_to_client_webhook(session_message)
 
-            mock_send.assert_called_once_with(mock_http_client, webhook_url, session_message, "test-session", None)
+            mock_send.assert_called_once_with(
+                mock_http_client, webhook_url, session_message, "test-session", None, max_retries=1
+            )
 
     @pytest.mark.anyio
     async def test_send_to_client_webhook_no_url(self, transport_config, mock_http_client, sample_jsonrpc_response):
