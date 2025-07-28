@@ -47,7 +47,7 @@ TRANSPORT_WEBHOOK = "webhook"
 
 # Common MCP configuration
 DEFAULT_INIT_PARAMS = {
-    "protocolVersion": "2025‑06‑18",
+    "protocolVersion": "2025-03-26",
     "capabilities": {"roots": {"listChanged": True}},
     "clientInfo": {"name": "mcp-client", "version": "1.0.0"},
 }
@@ -176,6 +176,22 @@ async def send_mcp_request(write_stream, method: str, params: dict = None, reque
 
     # allowing messages to flush
     await anyio.sleep(2)
+
+    return session_message
+
+
+async def send_mcp_notification(write_stream, method: str, params: dict = None) -> SessionMessage:
+    """Send an MCP notification (no ID, no response expected)"""
+    notification_dict = {"jsonrpc": "2.0", "method": method, "params": params or {}}
+
+    jsonrpc_message = types.JSONRPCMessage.model_validate(notification_dict)
+    session_message = SessionMessage(jsonrpc_message)
+
+    print_colored(f"📤 Sending {method} notification...", "blue")
+    await write_stream.send(session_message)
+
+    # allowing messages to flush
+    await anyio.sleep(0.1)
 
     return session_message
 

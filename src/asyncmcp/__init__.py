@@ -12,6 +12,14 @@ from asyncmcp.sqs.client import sqs_client
 from asyncmcp.sqs.manager import SqsSessionManager
 from asyncmcp.sqs.server import SqsTransport, sqs_server
 from asyncmcp.sqs.utils import SqsClientConfig, SqsServerConfig
+from asyncmcp.streamable_http_webhook.client import streamable_http_webhook_client
+from asyncmcp.streamable_http_webhook.manager import StreamableHTTPWebhookSessionManager
+from asyncmcp.streamable_http_webhook.server import StreamableHTTPWebhookTransport
+from asyncmcp.streamable_http_webhook.utils import (
+    StreamableHTTPWebhookClientConfig,
+    StreamableHTTPWebhookConfig,
+    webhook_tool,
+)
 from asyncmcp.webhook.client import webhook_client
 from asyncmcp.webhook.server import webhook_server
 from asyncmcp.webhook.utils import WebhookClientConfig, WebhookServerConfig
@@ -26,11 +34,6 @@ __all__ = [
     # SQS Transport
     "sqs_client",
     "sqs_server",
-    "WebhookServerConfig",
-    "WebhookClientConfig",
-    "webhook_client",
-    "webhook_server",
-    "__version__",
     "SqsTransport",
     "SqsServerConfig",
     "SqsClientConfig",
@@ -42,4 +45,18 @@ __all__ = [
     "SnsSqsSessionManager",
     "SnsSqsServerConfig",
     "SnsSqsClientConfig",
+    # Webhook Transport
+    "WebhookServerConfig",
+    "WebhookClientConfig",
+    "webhook_client",
+    "webhook_server",
+    # StreamableHTTP + Webhook Transport
+    "streamable_http_webhook_client",
+    "StreamableHTTPWebhookSessionManager",
+    "StreamableHTTPWebhookTransport",
+    "StreamableHTTPWebhookConfig",
+    "StreamableHTTPWebhookClientConfig",
+    "webhook_tool",
+    # Package info
+    "__version__",
 ]
