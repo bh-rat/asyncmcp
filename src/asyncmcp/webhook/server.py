@@ -57,6 +57,7 @@ class WebhookTransport(ServerTransport):
                 session_message,
                 self.session_id,
                 None,  # client_id not needed for webhook headers in this context
+                max_retries=self.config.max_retries,
             )
             logger.debug(f"Successfully sent response to webhook {self.webhook_url}")
 

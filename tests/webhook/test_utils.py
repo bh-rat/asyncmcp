@@ -28,7 +28,7 @@ class TestWebhookServerConfig:
         config = WebhookServerConfig()
 
         assert config.timeout_seconds == 30.0
-        assert config.max_retries == 0
+        assert config.max_retries == 1
         assert config.transport_timeout_seconds is None
 
     def test_custom_config(self):
@@ -53,7 +53,7 @@ class TestWebhookClientConfig:
 
         assert config.server_url == "http://localhost:8000/mcp/request"
         assert config.timeout_seconds == 30.0
-        assert config.max_retries == 0
+        assert config.max_retries == 1
         assert config.client_id is not None  # Auto-generated
         assert config.transport_timeout_seconds is None
 

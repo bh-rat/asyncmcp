@@ -49,8 +49,8 @@ from shared import (
 from starlette.applications import Starlette
 from starlette.routing import Route
 
-from asyncmcp.webhook.utils import WebhookClientConfig
 from asyncmcp.webhook.client import webhook_client
+from asyncmcp.webhook.utils import WebhookClientConfig
 
 # Add a global flag to track initialization
 _init_complete = False
@@ -255,8 +255,7 @@ def main(server_port, webhook_port, client_id) -> int:
         print_colored("🔧 Configuring webhook transport", "yellow")
 
         config = WebhookClientConfig(
-            server_url=f"http://localhost:{server_port}/mcp/request",
-            client_id=client_id,
+            server_url=f"http://localhost:{server_port}/mcp/request", client_id=client_id, timeout_seconds=30.0
         )
 
         webhook_path = "/webhook/response"

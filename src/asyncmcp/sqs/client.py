@@ -114,7 +114,6 @@ async def sqs_client(
     async def sqs_writer() -> None:
         async with write_stream_reader:
             async for session_message in write_stream_reader:
-                await anyio.lowlevel.checkpoint()
                 await transport.send_message(session_message)
 
     if config.transport_timeout_seconds is None:

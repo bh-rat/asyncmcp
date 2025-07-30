@@ -82,7 +82,7 @@ def main(server_port, webhook_port, stateless) -> int:
         # Configure webhook transport
         print_colored("🔧 Configuring webhook transport", "yellow")
 
-        config = WebhookServerConfig()
+        config = WebhookServerConfig(timeout_seconds=30.0, max_retries=1)
 
         # Create session manager
         session_manager = WebhookSessionManager(

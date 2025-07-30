@@ -98,17 +98,13 @@ class WebhookSessionManager:
         timeout = httpx.Timeout(self.config.timeout_seconds)
         self.http_client = httpx.AsyncClient(timeout=timeout)
 
-        async with anyio.create_task_group() as tg:
-            self._task_group = tg
-            tg.start_soon(self._event_driven_message_sender)
-
-            logger.debug("Webhook session manager started")
-
-            try:
-                yield
-            finally:
-                logger.debug("Webhook session manager shutting down")
-                await self.shutdown()
+        try:
+            async with anyio.create_task_group() as tg:
+                self._task_group = tg
+                tg.start_soon(self._event_driven_message_sender)
+                yield self  # Yield control back to caller
+        finally:
+            await self.shutdown()
 
     async def handle_request(
         self,
@@ -363,7 +359,6 @@ class WebhookSessionManager:
         if session_id in self._transport_instances:
             transport = self._transport_instances[session_id]
             await transport.send_message(session_message)
-            logger.debug(f"Forwarded initialized notification to MCP server for session {session_id}")
         else:
             logger.error(f"Transport not found for session {session_id}")
             return Response(
@@ -373,8 +368,6 @@ class WebhookSessionManager:
             )
 
         session_info.state = "initialized"
-        logger.debug(f"Session {session_id} marked as initialized")
-
         return Response(
             content=orjson.dumps({"status": "initialized"}),
             media_type="application/json",
@@ -503,7 +496,6 @@ class WebhookSessionManager:
                     if client_id in self._client_sessions:
                         del self._client_sessions[client_id]
 
-                logger.debug(f"Terminated session: {session_id}")
                 return True
             return False
 
