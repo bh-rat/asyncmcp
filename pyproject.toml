@@ -25,15 +25,33 @@ classifiers = [
 ]
 dependencies = [
     "anyio>=4.9.0",
+    "mcp>=1.9.4,<2.0.0",
+]
+
+[project.optional-dependencies]
+sqs = ["boto3>=1.38.36,<2.0.0"]
+sns_sqs = ["boto3>=1.38.36,<2.0.0"]
+webhook = [
+    "httpx>=0.28.1",
+    "starlette>=0.47.1",
+    "uvicorn>=0.35.0",
+    "orjson>=3.10.0,<4.0.0",
+]
+streamable_http_webhook = [
+    "httpx>=0.28.1",
+    "httpx-sse>=0.4.1",
+    "starlette>=0.47.1",
+    "uvicorn>=0.35.0",
+    "orjson>=3.10.0,<4.0.0",
+]
+all = [
     "boto3>=1.38.36,<2.0.0",
     "httpx>=0.28.1",
-    "mcp>=1.9.4,<2.0.0",
+    "httpx-sse>=0.4.1",
     "orjson>=3.10.0,<4.0.0",
     "starlette>=0.47.1",
     "uvicorn>=0.35.0",
 ]
-
-[project.optional-dependencies]
 rich = ["rich>=13.9.4"]
 cli = ["typer>=0.12.4", "python-dotenv>=1.0.0"]
 aws = ["awscli>=1.40.35,<2.0.0"]

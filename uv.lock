@@ -40,15 +40,18 @@ name = "asyncmcp"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
+    { name = "mcp" },
+]
+
+[package.optional-dependencies]
+all = [
     { name = "boto3" },
     { name = "httpx" },
-    { name = "mcp" },
+    { name = "httpx-sse" },
     { name = "orjson" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
-
-[package.optional-dependencies]
 aws = [
     { name = "awscli" },
 ]
@@ -61,6 +64,25 @@ dev = [
 ]
 rich = [
     { name = "rich" },
+]
+sns-sqs = [
+    { name = "boto3" },
+]
+sqs = [
+    { name = "boto3" },
+]
+streamable-http-webhook = [
+    { name = "httpx" },
+    { name = "httpx-sse" },
+    { name = "orjson" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+webhook = [
+    { name = "httpx" },
+    { name = "orjson" },
+    { name = "starlette" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -91,18 +113,30 @@ docs = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.9.0" },
     { name = "awscli", marker = "extra == 'aws'", specifier = ">=1.40.35,<2.0.0" },
-    { name = "boto3", specifier = ">=1.38.36,<2.0.0" },
-    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "boto3", marker = "extra == 'all'", specifier = ">=1.38.36,<2.0.0" },
+    { name = "boto3", marker = "extra == 'sns-sqs'", specifier = ">=1.38.36,<2.0.0" },
+    { name = "boto3", marker = "extra == 'sqs'", specifier = ">=1.38.36,<2.0.0" },
+    { name = "httpx", marker = "extra == 'all'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'streamable-http-webhook'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'webhook'", specifier = ">=0.28.1" },
+    { name = "httpx-sse", marker = "extra == 'all'", specifier = ">=0.4.1" },
+    { name = "httpx-sse", marker = "extra == 'streamable-http-webhook'", specifier = ">=0.4.1" },
     { name = "localstack", marker = "extra == 'dev'", specifier = ">=4.5.0,<5.0.0" },
     { name = "mcp", specifier = ">=1.9.4,<2.0.0" },
-    { name = "orjson", specifier = ">=3.10.0,<4.0.0" },
+    { name = "orjson", marker = "extra == 'all'", specifier = ">=3.10.0,<4.0.0" },
+    { name = "orjson", marker = "extra == 'streamable-http-webhook'", specifier = ">=3.10.0,<4.0.0" },
+    { name = "orjson", marker = "extra == 'webhook'", specifier = ">=3.10.0,<4.0.0" },
     { name = "python-dotenv", marker = "extra == 'cli'", specifier = ">=1.0.0" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.9.4" },
-    { name = "starlette", specifier = ">=0.47.1" },
+    { name = "starlette", marker = "extra == 'all'", specifier = ">=0.47.1" },
+    { name = "starlette", marker = "extra == 'streamable-http-webhook'", specifier = ">=0.47.1" },
+    { name = "starlette", marker = "extra == 'webhook'", specifier = ">=0.47.1" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12.4" },
-    { name = "uvicorn", specifier = ">=0.35.0" },
+    { name = "uvicorn", marker = "extra == 'all'", specifier = ">=0.35.0" },
+    { name = "uvicorn", marker = "extra == 'streamable-http-webhook'", specifier = ">=0.35.0" },
+    { name = "uvicorn", marker = "extra == 'webhook'", specifier = ">=0.35.0" },
 ]
-provides-extras = ["aws", "cli", "dev", "rich"]
+provides-extras = ["all", "aws", "cli", "dev", "rich", "sns-sqs", "sqs", "streamable-http-webhook", "webhook"]
 
 [package.metadata.requires-dev]
 dev = [

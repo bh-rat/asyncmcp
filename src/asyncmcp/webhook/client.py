@@ -4,7 +4,6 @@ Webhook client transport implementation.
 The client sends HTTP POST requests to the server and receives responses via webhooks.
 """
 
-import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
@@ -59,7 +58,7 @@ class WebhookClientTransport(BaseClientTransport):
 
         if "params" in message_dict and "_meta" in params and "webhookUrl" in meta:
             # Webhook URL provided - use as is
-            return json.dumps(message_dict)
+            return orjson.dumps(message_dict).decode("utf-8")
         else:
             # External app must set the full webhook URL in _meta
             raise ValueError("webhookUrl is required in initialize request _meta field")

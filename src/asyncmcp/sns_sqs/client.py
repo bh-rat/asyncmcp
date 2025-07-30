@@ -1,4 +1,3 @@
-import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
@@ -8,6 +7,7 @@ from typing import Any, Dict
 import anyio
 import anyio.lowlevel
 import anyio.to_thread
+import orjson
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
 
@@ -57,7 +57,7 @@ class SnsSqsClientTransport(BaseClientTransport):
         if "params" not in message_dict:
             message_dict["params"] = {}
         message_dict["params"]["client_topic_arn"] = self.client_topic_arn
-        return json.dumps(message_dict)
+        return orjson.dumps(message_dict).decode("utf-8")
 
     async def send_message(self, session_message: SessionMessage) -> None:
         """Send message to SNS with proper error handling."""

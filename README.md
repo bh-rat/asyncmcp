@@ -76,14 +76,41 @@ AsyncMCP provides three different transport implementations for different use ca
 
 ## Installation and Usage
 
+### Install Base Package (minimal dependencies)
 ```bash
-# Using uv (recommended)
-uv add asyncmcp
+# Using pip
+pip install asyncmcp
 ```
 
+### Install Specific Transports
+
 ```bash
-# Using pip  
-pip install asyncmcp
+# For SQS transport only
+pip install asyncmcp[sqs]
+
+# For SNS+SQS transport only  
+pip install asyncmcp[sns_sqs]
+
+# For Webhook transport only
+pip install asyncmcp[webhook]
+
+# For StreamableHTTP+Webhook transport only
+pip install asyncmcp[streamable_http_webhook]
+
+# Install all transports
+pip install asyncmcp[all]
+```
+
+### Using uv (recommended)
+
+```bash
+# Base package
+uv add asyncmcp
+
+# With specific transports
+uv add asyncmcp[sqs]
+uv add asyncmcp[webhook]
+# etc...
 ```
 
 ## Basic Usage Examples

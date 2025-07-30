@@ -1,5 +1,4 @@
 # src/asyncmcp/sns_sqs/manager.py
-import json
 import logging
 import threading
 from contextlib import asynccontextmanager
@@ -10,6 +9,7 @@ import anyio
 import anyio.lowlevel
 import anyio.to_thread
 import mcp.types as types
+import orjson
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.server.lowlevel.server import Server as MCPServer
@@ -206,7 +206,7 @@ class SnsSqsSessionManager:
 
         # SNS notification attributes
         try:
-            body = json.loads(sqs_message["Body"])
+            body = orjson.loads(sqs_message["Body"])
             if "MessageAttributes" in body:
                 sns_attrs = body["MessageAttributes"]
                 for key, value in sns_attrs.items():
@@ -222,17 +222,17 @@ class SnsSqsSessionManager:
         """Extract the actual message body, handling SNS notification format."""
         if isinstance(body, str):
             try:
-                parsed_body = json.loads(body)
+                parsed_body = orjson.loads(body)
                 if "Message" in parsed_body and "Type" in parsed_body:
                     # This is an SNS notification, extract the actual message
                     return parsed_body["Message"]
                 else:
                     return body
-            except json.JSONDecodeError:
+            except orjson.JSONDecodeError:
                 return body
         else:
             # If body is already a dict, convert to JSON string first
-            return json.dumps(body)
+            return orjson.dumps(body).decode("utf-8")
 
     async def _send_error_response_if_possible(self, error_response, message_attrs: Dict[str, Any]) -> None:
         """Send an error response back to the client if we can determine the topic."""

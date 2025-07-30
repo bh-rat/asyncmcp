@@ -1,4 +1,3 @@
-import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
@@ -8,6 +7,7 @@ from typing import Any, Dict
 import anyio
 import anyio.lowlevel
 import anyio.to_thread
+import orjson
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage
@@ -56,7 +56,7 @@ class SqsClientTransport(BaseClientTransport):
         if "params" not in message_dict:
             message_dict["params"] = {}
         message_dict["params"]["response_queue_url"] = self.config.response_queue_url
-        return json.dumps(message_dict)
+        return orjson.dumps(message_dict).decode("utf-8")
 
     async def send_message(self, session_message: SessionMessage) -> None:
         """Send message to SQS with proper error handling."""

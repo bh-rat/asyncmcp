@@ -1,4 +1,3 @@
-import json
 import logging
 import time
 from typing import Any, Dict, Optional
@@ -7,6 +6,7 @@ import anyio
 import anyio.lowlevel
 import anyio.to_thread
 import mcp.types as types
+import orjson
 from anyio.streams.memory import MemoryObjectSendStream
 from mcp.shared.message import SessionMessage
 from pydantic_core import ValidationError
@@ -89,21 +89,21 @@ async def get_parsed_message(sqs_message: Dict[str, Any]) -> Dict[str, Any]:
         # Handle SNS notification format
         if isinstance(body, str):
             try:
-                parsed_body = json.loads(body)
+                parsed_body = orjson.loads(body)
                 if "Message" in parsed_body and "Type" in parsed_body:
                     # This is an SNS notification, extract the actual message
                     actual_message = parsed_body["Message"]
                 else:
                     actual_message = body
-            except json.JSONDecodeError:
+            except orjson.JSONDecodeError:
                 actual_message = body
         else:
             # If body is already a dict, convert to JSON string first
-            actual_message = json.dumps(body)
+            actual_message = orjson.dumps(body).decode("utf-8")
 
         # Parse the JSON-RPC message
         if isinstance(actual_message, str):
-            parsed = json.loads(actual_message)
+            parsed = orjson.loads(actual_message)
         else:
             parsed = actual_message
         return parsed
@@ -187,18 +187,18 @@ async def sqs_reader(
                                     else:
                                         # Check if this is an SNS notification and extract attributes from there
                                         try:
-                                            sns_body = json.loads(message["Body"])
+                                            sns_body = orjson.loads(message["Body"])
                                             if "MessageAttributes" in sns_body:
                                                 sns_attrs = sns_body["MessageAttributes"]
                                                 if "SessionId" in sns_attrs:
                                                     session_id = sns_attrs["SessionId"]["Value"]
-                                        except (json.JSONDecodeError, KeyError):
+                                        except (orjson.JSONDecodeError, KeyError):
                                             pass
 
                                     if session_id:
                                         await state.set_session_id_if_none(session_id)
 
-                            except (json.JSONDecodeError, KeyError, TypeError):
+                            except (orjson.JSONDecodeError, KeyError, TypeError):
                                 # If we can't parse the message, skip session ID extraction
                                 pass
 

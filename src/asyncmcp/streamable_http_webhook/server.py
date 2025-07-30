@@ -5,13 +5,13 @@ This transport extends AsyncMCP's ServerTransport base class while providing
 full MCP StreamableHTTP compatibility plus selective webhook tool routing.
 """
 
-import json
 import logging
 from http import HTTPStatus
 from typing import Awaitable, Callable, Dict, Optional, Set, Tuple
 
 import anyio
 import httpx
+import orjson
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.server.transport_security import TransportSecurityMiddleware
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
@@ -226,8 +226,8 @@ class StreamableHTTPWebhookTransport(ServerTransport):
             body = await request.body()
 
             try:
-                raw_message = json.loads(body)
-            except json.JSONDecodeError as e:
+                raw_message = orjson.loads(body)
+            except orjson.JSONDecodeError as e:
                 response = create_error_response(
                     f"Parse error: {str(e)}",
                     HTTPStatus.BAD_REQUEST,

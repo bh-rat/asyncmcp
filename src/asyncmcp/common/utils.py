@@ -1,7 +1,7 @@
-import json
 import re
 from typing import Any, Dict, Optional, Tuple
 
+import orjson
 from mcp import ErrorData, JSONRPCError
 from mcp import types as types
 from mcp.shared.message import SessionMessage
@@ -122,8 +122,8 @@ def validate_and_parse_message(message_body: str) -> Tuple[Optional[SessionMessa
     """Validate and parse a message body into a SessionMessage."""
     try:
         try:
-            raw_message = json.loads(message_body)
-        except json.JSONDecodeError as e:
+            raw_message = orjson.loads(message_body)
+        except orjson.JSONDecodeError as e:
             return None, create_parse_error_response(f"Parse error: {str(e)}")
 
         try:
@@ -171,16 +171,16 @@ async def to_session_message(sqs_message: Dict[str, Any]) -> SessionMessage:
         # Handle SNS notification format
         if isinstance(body, str):
             try:
-                parsed_body = json.loads(body)
+                parsed_body = orjson.loads(body)
                 if "Message" in parsed_body and "Type" in parsed_body:
                     # This is an SNS notification, extract the actual message
                     actual_message = parsed_body["Message"]
                 else:
                     actual_message = body
-            except json.JSONDecodeError:
+            except orjson.JSONDecodeError:
                 actual_message = body
         else:
-            actual_message = json.dumps(body)
+            actual_message = orjson.dumps(body).decode("utf-8")
 
         session_message, error = validate_and_parse_message(actual_message)
         if error:
