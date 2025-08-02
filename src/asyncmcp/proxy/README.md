@@ -1,0 +1,165 @@
+# AsyncMCP Proxy
+
+The AsyncMCP Proxy module provides a bridge between standard MCP transports (StreamableHTTP/stdio) and asyncmcp's asynchronous transports (SQS, SNS+SQS, Webhook). This enables MCP clients to connect to services running on async transports without modification.
+
+## Overview
+
+The proxy server:
+- Exposes a standard MCP StreamableHTTP endpoint
+- Forwards requests to configured asyncmcp backend transports
+- Streams responses back to clients using Server-Sent Events (SSE)
+- Supports session isolation for concurrent clients
+- Provides optional authentication and CORS support
+
+## Architecture
+
+```
+MCP Client → StreamableHTTP → Proxy Server → AsyncMCP Transport → MCP Server
+                                    ↓
+                              ProxySessionManager
+                                    ↓
+                              ProxyClient (Backend Adapter)
+```
+
+## Usage
+
+### Basic Proxy Server
+
+```python
+from asyncmcp.proxy import create_proxy_server
+from asyncmcp.sqs.utils import SqsClientConfig
+import boto3
+
+# Configure backend
+backend_config = SqsClientConfig(
+    read_queue_url="https://sqs.us-east-1.amazonaws.com/123/requests",
+    response_queue_url="https://sqs.us-east-1.amazonaws.com/123/responses"
+)
+
+# Create and run proxy
+proxy = create_proxy_server(
+    backend_transport="sqs",
+    backend_config=backend_config,
+    backend_clients={"sqs_client": boto3.client("sqs")},
+    port=8080
+)
+
+await proxy.run()
+```
+
+### Advanced Configuration
+
+```python
+from asyncmcp.proxy import ProxyConfig, ProxyServer
+
+config = ProxyConfig(
+    # Server settings
+    host="0.0.0.0",
+    port=8080,
+    server_path="/mcp",
+    
+    # Backend settings
+    backend_transport="sns_sqs",
+    backend_config=sns_sqs_config,
+    backend_clients={"sqs_client": sqs, "sns_client": sns},
+    
+    # Session management
+    session_timeout=300.0,
+    max_sessions=100,
+    stateless=False,
+    
+    # Security
+    cors_origins=["http://localhost:3000"],
+    auth_enabled=True,
+    auth_token="secret-token"
+)
+
+server = ProxyServer(config)
+await server.run()
+```
+
+### Client Connection
+
+MCP clients connect to the proxy using standard StreamableHTTP:
+
+```javascript
+// JavaScript/TypeScript client example
+const client = new MCPClient({
+    transport: {
+        type: "streamable-http",
+        url: "http://localhost:8080/mcp"
+    }
+});
+
+// Use the client normally
+const tools = await client.listTools();
+```
+
+## Features
+
+### Session Management
+- Each client connection gets an isolated backend session
+- Sessions are automatically cleaned up on disconnect
+- Configurable session limits and timeouts
+
+### Authentication
+- Optional token-based authentication
+- Bearer token support in Authorization header
+- Easy to extend with custom auth mechanisms
+
+### CORS Support
+- Configurable CORS origins
+- Enables browser-based MCP clients
+- Full preflight request handling
+
+### Error Handling
+- Graceful error propagation from backend
+- Client-friendly error messages
+- Automatic reconnection support
+
+## Supported Backends
+
+The proxy supports all asyncmcp transports:
+
+- **SQS**: AWS Simple Queue Service
+- **SNS+SQS**: AWS SNS topics with SQS queues
+- **Webhook**: HTTP webhook-based transport
+- **StreamableHTTP+Webhook**: Hybrid transport
+
+## Example: Running the Proxy
+
+See `examples/proxy_server.py` for a complete example:
+
+```bash
+# Start proxy with SQS backend
+python examples/proxy_server.py --backend sqs
+
+# With authentication
+python examples/proxy_server.py --backend sqs --auth-token "secret"
+
+# With CORS for browser clients
+python examples/proxy_server.py --backend sqs --cors-origin "http://localhost:3000"
+```
+
+## Use Cases
+
+1. **Gateway Functionality**: Single entry point for multiple backend services
+2. **Transport Abstraction**: Hide backend complexity from clients
+3. **Development**: Use standard tools while backend uses async transports
+4. **Security**: Add authentication layer to existing services
+5. **Load Distribution**: Route to multiple backend instances
+
+## Testing
+
+Run the proxy tests:
+
+```bash
+pytest tests/proxy/
+```
+
+## Performance Considerations
+
+- Connection pooling for backend transports
+- Configurable timeouts and limits
+- Efficient streaming with SSE
+- Minimal overhead for message forwarding
