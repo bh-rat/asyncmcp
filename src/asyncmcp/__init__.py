@@ -29,6 +29,13 @@ try:
 except PackageNotFoundError:
     __version__ = "0.0.0"
 
+# Optional FastMCP integration
+try:
+    from asyncmcp.fastmcp import AsyncMCPTransport, create_fastmcp_client, run_fastmcp_server
+    _FASTMCP_AVAILABLE = True
+except ImportError:
+    _FASTMCP_AVAILABLE = False
+
 
 __all__ = [
     # SQS Transport
@@ -60,3 +67,11 @@ __all__ = [
     # Package info
     "__version__",
 ]
+
+# Add FastMCP exports if available
+if _FASTMCP_AVAILABLE:
+    __all__.extend([
+        "AsyncMCPTransport",
+        "create_fastmcp_client", 
+        "run_fastmcp_server",
+    ])

@@ -38,6 +38,7 @@ rich = ["rich>=13.9.4"]
 cli = ["typer>=0.12.4", "python-dotenv>=1.0.0"]
 aws = ["awscli>=1.40.35,<2.0.0"]
 dev = ["localstack>=4.5.0,<5.0.0"]
+fastmcp = ["fastmcp>=2.0.0"]
 
 # [project.scripts]
 # No CLI scripts provided yet

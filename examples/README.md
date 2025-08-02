@@ -1,10 +1,47 @@
-# MCP Local CLI Testing
+# AsyncMCP Examples
 
-This directory contains an interactive CLI client example showing how asyncmcp can be used. 
-The CLI allows to take actions and the server is an asyncmcp version of MCP's [fetch server example](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch)
+This directory contains examples showing how to use asyncmcp transports and the proxy server. 
+The examples include an interactive CLI client and an asyncmcp version of MCP's [fetch server example](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch).
 
 > [!CAUTION]
-> This server can access local/internal IP addresses and may represent a security risk. Exercise caution when using this MCP server to ensure this does not expose any sensitive data.
+> The website server can access local/internal IP addresses and may represent a security risk. Exercise caution when using this MCP server to ensure this does not expose any sensitive data.
+
+## Quick Start with Proxy
+
+The easiest way to test asyncmcp is using the proxy server, which bridges standard MCP clients with async transports:
+
+### 1. Start LocalStack (for SQS/SNS transports)
+```bash
+localstack start
+uv run setup.py  # Create queues and topics
+```
+
+### 2. Start the Backend Server
+```bash
+# Using SQS transport
+uv run website_server.py --transport sqs
+```
+
+### 3. Start the Proxy Server (in another terminal)
+```bash
+# Proxy with SQS backend
+uv run proxy_server.py --backend sqs
+```
+
+### 4. Connect with the Interactive Client (in another terminal)
+```bash
+# Connect to the proxy
+uv run proxy_client.py
+
+# You can now:
+# - Type 'list' to see available tools
+# - Type 'call' to call a tool
+# - Type 'help' for all commands
+```
+
+## Direct Transport Examples
+
+You can also use the transports directly without the proxy:
 
 ## Prerequisites
 

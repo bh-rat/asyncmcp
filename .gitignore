@@ -176,3 +176,11 @@ cython_debug/
 # references for LLMs
 references/
 references/*
+MULTI_TRANSPORT_USAGE.md
+MULTI_TRANSPORT_GUIDE.md
+examples/check_localstack.py
+examples/debug_sqs.py
+examples/multi_transport_README.md
+scripts/
+CLAUDE.md
+
