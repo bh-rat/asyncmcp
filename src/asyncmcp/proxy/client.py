@@ -99,14 +99,10 @@ class ProxyClient:
         if not isinstance(config, SqsClientConfig):
             raise TypeError(f"Expected SqsClientConfig, got {type(config)}")
 
-        logger.info(f"ProxyClient[{self.session_id}]: Connecting to SQS backend with config: {config}")
         async with sqs_client(
             config=config,
             sqs_client=self.low_level_clients["sqs_client"],
         ) as (read_stream, write_stream):
-            logger.info(f"ProxyClient[{self.session_id}]: Connected to SQS backend successfully")
-            logger.info(f"ProxyClient[{self.session_id}]: Read queue: {config.read_queue_url}")
-            logger.info(f"ProxyClient[{self.session_id}]: Response queue: {config.response_queue_url}")
             yield read_stream, write_stream
 
     @asynccontextmanager

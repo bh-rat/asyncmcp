@@ -102,16 +102,6 @@ const tools = await client.listTools();
 - Sessions are automatically cleaned up on disconnect
 - Configurable session limits and timeouts
 
-### Authentication
-- Optional token-based authentication
-- Bearer token support in Authorization header
-- Easy to extend with custom auth mechanisms
-
-### CORS Support
-- Configurable CORS origins
-- Enables browser-based MCP clients
-- Full preflight request handling
-
 ### Error Handling
 - Graceful error propagation from backend
 - Client-friendly error messages
@@ -141,14 +131,6 @@ python examples/proxy_server.py --backend sqs --auth-token "secret"
 python examples/proxy_server.py --backend sqs --cors-origin "http://localhost:3000"
 ```
 
-## Use Cases
-
-1. **Gateway Functionality**: Single entry point for multiple backend services
-2. **Transport Abstraction**: Hide backend complexity from clients
-3. **Development**: Use standard tools while backend uses async transports
-4. **Security**: Add authentication layer to existing services
-5. **Load Distribution**: Route to multiple backend instances
-
 ## Testing
 
 Run the proxy tests:
@@ -156,10 +138,3 @@ Run the proxy tests:
 ```bash
 pytest tests/proxy/
 ```
-
-## Performance Considerations
-
-- Connection pooling for backend transports
-- Configurable timeouts and limits
-- Efficient streaming with SSE
-- Minimal overhead for message forwarding

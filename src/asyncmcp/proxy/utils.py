@@ -55,7 +55,7 @@ class ProxyConfig:
 
     # Performance settings
     connection_pool_size: int = 10
-    request_timeout: float = 30.0
+    request_timeout: float = 180.0
 
     # Security settings
     cors_origins: Optional[list[str]] = None

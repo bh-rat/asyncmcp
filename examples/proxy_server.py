@@ -9,13 +9,13 @@ This example demonstrates how to set up a proxy server that:
 Usage:
     # Start proxy with SQS backend
     python proxy_server.py --backend sqs
-    
+
     # Start proxy with SNS+SQS backend
     python proxy_server.py --backend sns-sqs
-    
+
     # Start proxy with authentication
     python proxy_server.py --backend sqs --auth-token "secret-token"
-    
+
     # Start proxy on custom port
     python proxy_server.py --backend sqs --port 9090
 """
@@ -61,14 +61,14 @@ DEFAULT_RESOURCES = {
 def create_sqs_backend_config() -> tuple[SqsClientConfig, dict]:
     """Create SQS backend configuration."""
     sqs_client = boto3.client("sqs", **AWS_CONFIG)
-    
+
     config = SqsClientConfig(
         read_queue_url=DEFAULT_RESOURCES["sqs_request_queue"],
         response_queue_url=DEFAULT_RESOURCES["sqs_response_queue"],
     )
-    
+
     backend_clients = {"sqs_client": sqs_client}
-    
+
     return config, backend_clients
 
 
@@ -76,17 +76,17 @@ def create_sns_sqs_backend_config() -> tuple[SnsSqsClientConfig, dict]:
     """Create SNS+SQS backend configuration."""
     sqs_client = boto3.client("sqs", **AWS_CONFIG)
     sns_client = boto3.client("sns", **AWS_CONFIG)
-    
+
     config = SnsSqsClientConfig(
         sns_topic_arn=DEFAULT_RESOURCES["sns_topic"],
         sqs_queue_url=DEFAULT_RESOURCES["sqs_response_queue"],
     )
-    
+
     backend_clients = {
         "sqs_client": sqs_client,
         "sns_client": sns_client,
     }
-    
+
     return config, backend_clients
 
 
@@ -95,9 +95,9 @@ def create_webhook_backend_config() -> tuple[WebhookClientConfig, dict]:
     config = WebhookClientConfig(
         server_url=DEFAULT_RESOURCES["webhook_server"],
     )
-    
+
     backend_clients = {}
-    
+
     return config, backend_clients
 
 
@@ -158,17 +158,17 @@ def main(
     print(f"🚀 Starting AsyncMCP Proxy Server")
     print(f"   Backend: {backend}")
     print(f"   Address: http://{host}:{port}{server_path}")
-    
+
     if auth_token:
         print(f"   Auth: Enabled (token required)")
     else:
         print(f"   Auth: Disabled")
-        
+
     if cors_origin:
         print(f"   CORS: {', '.join(cors_origin)}")
-        
+
     print()
-    
+
     # Create backend configuration
     if backend == "sqs":
         backend_config, backend_clients = create_sqs_backend_config()
@@ -181,7 +181,7 @@ def main(
         backend_transport = "webhook"
     else:
         raise ValueError(f"Unknown backend: {backend}")
-        
+
     # Create proxy configuration
     proxy_config = ProxyConfig(
         host=host,
@@ -196,10 +196,10 @@ def main(
         auth_token=auth_token,
         cors_origins=list(cors_origin) if cors_origin else None,
     )
-    
+
     # Create and run proxy server
     proxy_server = ProxyServer(proxy_config)
-    
+
     print("📡 Proxy server is ready to accept connections")
     print(f"   MCP endpoint: http://{host}:{port}{server_path}")
     print(f"   Health endpoint: http://{host}:{port}/health")
@@ -209,7 +209,7 @@ def main(
     print("   - POST requests for messages")
     print()
     print("Press Ctrl+C to stop the server")
-    
+
     try:
         asyncio.run(proxy_server.run())
     except KeyboardInterrupt:

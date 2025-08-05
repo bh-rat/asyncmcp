@@ -15,7 +15,10 @@ from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 from starlette.routing import Route
 
-from .manager import ProxySessionManager
+from .message_handler import MessageHandler
+from .session_manager import ProxySessionManager
+from .session_resolver import SessionResolver
+from .sse_handler import SSEHandler
 from .utils import ProxyConfig, validate_auth_token
 
 logger = logging.getLogger(__name__)
@@ -36,6 +39,9 @@ class ProxyServer:
         """
         self.config = config
         self.session_manager = ProxySessionManager(config)
+        self.session_resolver = SessionResolver(self.session_manager, config.stateless)
+        self.message_handler = MessageHandler(self.session_manager)
+        self.sse_handler = SSEHandler(self.session_manager)
 
         # Create Starlette app with routes
         self.app = Starlette(
@@ -59,15 +65,10 @@ class ProxyServer:
 
     async def startup(self):
         """Initialize server resources on startup."""
-        logger.info(
-            f"Starting proxy server on {self.config.host}:{self.config.port} "
-            f"with backend transport: {self.config.backend_transport}"
-        )
         await self.session_manager.start()
 
     async def shutdown(self):
         """Clean up server resources on shutdown."""
-        logger.info("Shutting down proxy server")
         await self.session_manager.stop()
 
     async def handle_health(self, request: Request) -> Response:
@@ -85,7 +86,7 @@ class ProxyServer:
 
     async def handle_request(self, request: Request) -> Response:
         """Handle all requests to the MCP endpoint.
-        
+
         Routes based on HTTP method:
         - GET: Establish SSE connection
         - POST: Handle message requests
@@ -102,7 +103,7 @@ class ProxyServer:
                 headers={"Allow": "GET, POST"},
             )
 
-    async def handle_sse(self, request: Request) -> StreamingResponse:
+    async def handle_sse(self, request: Request) -> Response:
         """Handle Server-Sent Events (SSE) connection for StreamableHTTP.
 
         This endpoint establishes an SSE connection with the client and
@@ -116,72 +117,20 @@ class ProxyServer:
                 return Response(status_code=401, content="Unauthorized")
 
         # Get or create session
-        session_id = request.headers.get("X-Session-Id")
-        if not session_id:
-            session_id = self.session_manager.create_session_id()
-            logger.info(f"New SSE connection from {request.client.host}, assigned session {session_id}")
-        else:
-            logger.info(f"Existing SSE connection from {request.client.host}, session {session_id}")
+        session_id, is_new_session = self.session_resolver.resolve_sse_session(request)
 
-        # Create SSE response
-        async def event_generator():
-            """Generate SSE events from backend responses."""
-            try:
-                # Get response stream for this session
-                response_stream = await self.session_manager.get_response_stream(session_id)
-
-                # Stream responses from backend
-                async for message in response_stream:
-                    # Convert SessionMessage to JSON
-                    message_data = message.message.model_dump_json(
-                        exclude_none=True,
-                        by_alias=True,
-                    )
-
-                    # Send as SSE event
-                    yield f"event: message\ndata: {message_data}\n\n"
-
-            except asyncio.CancelledError:
-                logger.info(f"SSE connection closed for session {session_id}")
-                raise
-            except Exception as e:
-                logger.error(f"Error in SSE stream for session {session_id}: {e}")
-                error_data = json.dumps({"error": str(e), "type": "stream_error"})
-                yield f"event: error\ndata: {error_data}\n\n"
-            finally:
-                # Don't remove session here - sessions should persist beyond SSE connections
-                # This allows clients like MCP Inspector to reconnect or make subsequent requests
-                logger.info(f"SSE stream ended for session {session_id}, but session remains active")
-
-        response = StreamingResponse(
-            event_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Session-Id": session_id,
-            },
-        )
-        
-        # Set session cookie for browser-based clients
-        response.set_cookie(
-            key="mcp-session-id",
-            value=session_id,
-            httponly=True,
-            samesite="lax",
-            max_age=86400  # 24 hours
-        )
-        
-        return response
+        # Create and return SSE response
+        return await self.sse_handler.create_sse_response(session_id, is_new_session)
 
     async def _create_sse_response_for_request(self, session_id: str, request_id: str) -> StreamingResponse:
         """Create an SSE response stream for a specific request."""
+
         async def request_event_generator():
             """Generate SSE events for a specific request response."""
             try:
                 # Get response stream for this session
                 response_stream = await self.session_manager.get_response_stream(session_id)
-                
+
                 # Wait for the specific response
                 async for message in response_stream:
                     # Check if this is the response we're waiting for
@@ -201,12 +150,12 @@ class ProxyServer:
                             by_alias=True,
                         )
                         yield f"event: message\ndata: {message_data}\n\n"
-                        
+
             except Exception as e:
                 logger.error(f"Error in SSE response stream: {e}")
                 error_data = json.dumps({"error": str(e), "type": "stream_error"})
                 yield f"event: error\ndata: {error_data}\n\n"
-        
+
         return StreamingResponse(
             request_event_generator(),
             media_type="text/event-stream",
@@ -220,8 +169,7 @@ class ProxyServer:
         """Handle message POST endpoint for StreamableHTTP.
 
         This endpoint receives messages from the client and forwards them
-        to the backend transport. Returns SSE stream if Accept header includes
-        text/event-stream, otherwise returns JSON response.
+        to the backend transport.
         """
         # Validate authentication if enabled
         if self.config.auth_enabled:
@@ -230,88 +178,39 @@ class ProxyServer:
             if not validate_auth_token(token, self.config.auth_token):
                 return Response(status_code=401, content="Unauthorized")
 
-        # Check Accept header to determine response type
-        accept_header = request.headers.get("accept", "")
-        accepts_sse = "text/event-stream" in accept_header
-        accepts_json = "application/json" in accept_header or "*/*" in accept_header
-        
-        # Debug logging for MCP Inspector
-        logger.info(f"POST request Accept header: '{accept_header}'")
-        logger.info(f"Accepts SSE: {accepts_sse}, Accepts JSON: {accepts_json}")
-
-        # Parse request body first to check if it's an initialize request
+        # Parse request body
         try:
             body = await request.body()
             message_data = json.loads(body)
-            is_initialize = message_data.get("method") == "initialize"
         except json.JSONDecodeError as e:
             return Response(
                 status_code=400,
                 content=json.dumps({"error": f"Invalid JSON: {str(e)}"}),
                 media_type="application/json",
             )
-        
-        # Get session ID from various sources
-        session_id = None
-        is_new_session = False
-        
-        # Debug logging
-        logger.debug(f"Request method: {request.method}, is_initialize: {is_initialize}")
-        logger.debug(f"Headers: {dict(request.headers)}")
-        logger.debug(f"Active sessions: {self.session_manager.active_session_count}")
-        
-        # 1. Check X-Session-Id header (for clients that support it)
-        session_id = request.headers.get("X-Session-Id")
-        if session_id:
-            logger.debug(f"Found session ID in X-Session-Id header: {session_id}")
-        
-        # 2. Check cookies for session (for browser-based clients like MCP Inspector)
-        if not session_id and "cookie" in request.headers:
-            cookies = request.cookies
-            session_id = cookies.get("mcp-session-id")
-            if session_id:
-                logger.debug(f"Found session ID in cookie: {session_id}")
-        
-        # 3. For stateless mode or single session, use a default session
-        if not session_id and (self.config.stateless or is_initialize):
-            # In stateless mode or for initialize, use/create a default session
-            if self.config.stateless:
-                session_id = "default"
-                logger.debug("Using default session for stateless mode")
-            elif is_initialize:
-                # For initialize, try to use existing session if there's only one
-                if self.session_manager.active_session_count == 1:
-                    session_id = self.session_manager.get_single_session_id()
-                    logger.info(f"Using existing single session for initialize: {session_id}")
-                else:
-                    # Create new session for initialize requests
-                    session_id = self.session_manager.create_session_id()
-                    is_new_session = True
-                    logger.info(f"New session created for initialize request: {session_id}")
-        
-        # 4. If still no session ID and not initialize, try to get the first/only active session
-        # This supports MCP Inspector which expects a single session per server
-        if not session_id and self.session_manager.active_session_count == 1:
-            # Get the single active session
-            session_id = self.session_manager.get_single_session_id()
-            if session_id:
-                logger.info(f"Using single active session: {session_id}")
-        
-        # 5. Final check - if no session ID found, return error
-        if not session_id:
-            logger.error(f"No session ID found. Active sessions: {self.session_manager.active_session_count}")
+
+        # Resolve session ID
+        resolution = await self.session_resolver.resolve_session(request, message_data)
+
+        if resolution.error_message:
             return Response(
                 status_code=400,
-                content=json.dumps({"error": "No active session. Please initialize first."}),
+                content=json.dumps({"error": resolution.error_message}),
                 media_type="application/json",
             )
-        
-        # Create session if needed
-        if is_new_session or not self.session_manager.has_session(session_id):
-            await self.session_manager.get_response_stream(session_id)
 
-        # Check if session exists (skip for new sessions)
-        if not is_new_session and not self.session_manager.has_session(session_id):
+        session_id = resolution.session_id
+        is_new_session = resolution.is_new_session
+
+        if not session_id:
+            return Response(
+                status_code=400,
+                content=json.dumps({"error": "Failed to resolve session"}),
+                media_type="application/json",
+            )
+
+        # Ensure session exists
+        if not await self.message_handler.ensure_session_exists(session_id, is_new_session):
             return Response(
                 status_code=404,
                 content=json.dumps({"error": "Session not found"}),
@@ -319,46 +218,12 @@ class ProxyServer:
             )
 
         try:
-            # Forward message to backend
-            await self.session_manager.send_message(session_id, message_data)
-            
-            # Get the request ID to wait for the response
-            request_id = message_data.get("id")
-            
-            # Wait for the response from backend (with timeout)
-            logger.info(f"Waiting for response to request {request_id} from backend...")
-            
-            response_data = await self.session_manager.wait_for_response(
-                session_id, request_id, timeout=10.0
-            )
-            
-            if response_data:
-                # Return the JSON-RPC response directly
-                logger.info(f"Returning response for request {request_id} directly in POST response")
-                response = Response(
-                    status_code=200,
-                    content=response_data,
-                    media_type="application/json",
-                    headers={"X-Session-Id": session_id} if is_new_session else {},
-                )
+            # Handle notification or request
+            if self.message_handler.is_notification(message_data):
+                response = await self.message_handler.handle_notification(session_id, message_data, is_new_session)
             else:
-                # Timeout or error - return error response
-                logger.error(f"Timeout waiting for response to request {request_id}")
-                error_response = {
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "error": {
-                        "code": -32001,
-                        "message": "Request timed out"
-                    }
-                }
-                response = Response(
-                    status_code=200,
-                    content=json.dumps(error_response),
-                    media_type="application/json",
-                    headers={"X-Session-Id": session_id} if is_new_session else {},
-                )
-            
+                response = await self.message_handler.handle_request(session_id, message_data, is_new_session)
+
             # Set session cookie for new sessions
             if is_new_session:
                 response.set_cookie(
@@ -366,9 +231,9 @@ class ProxyServer:
                     value=session_id,
                     httponly=True,
                     samesite="lax",
-                    max_age=86400  # 24 hours
+                    max_age=86400,  # 24 hours
                 )
-            
+
             return response
 
         except Exception as e:
