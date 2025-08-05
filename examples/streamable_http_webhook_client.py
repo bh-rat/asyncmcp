@@ -10,22 +10,22 @@ This client demonstrates:
 """
 
 import asyncio
-import time
 import json
 import logging
+import sys
+import time
+import traceback
+
 import anyio
 import click
 import uvicorn
-import sys
-import traceback
-
-from shared import print_colored, send_mcp_request, send_mcp_notification, DEFAULT_INIT_PARAMS
+from shared import DEFAULT_INIT_PARAMS, print_colored, send_mcp_notification, send_mcp_request
 from starlette.applications import Starlette
 from starlette.routing import Route
 
 from asyncmcp.streamable_http_webhook import (
-    streamable_http_webhook_client,
     StreamableHTTPWebhookClientConfig,
+    streamable_http_webhook_client,
 )
 
 

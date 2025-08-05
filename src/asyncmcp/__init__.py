@@ -32,7 +32,6 @@ except PackageNotFoundError:
 # Proxy server
 from asyncmcp.proxy import ProxyConfig, ProxyServer, ProxySessionManager, create_proxy_server
 
-
 __all__ = [
     # SQS Transport
     "sqs_client",

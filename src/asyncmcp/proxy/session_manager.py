@@ -167,7 +167,7 @@ class ProxySessionManager:
         message_dict = message.message.model_dump(exclude_none=True, by_alias=True)
         request_id = message_dict.get("id")
 
-        if request_id is not None:  # Changed from if request_id to handle id=0
+        if request_id is not None:
             future_key = f"{session_id}:{request_id}"
             future = self._pending_responses.get(future_key)
 

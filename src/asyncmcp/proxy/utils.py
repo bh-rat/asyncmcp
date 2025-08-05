@@ -5,6 +5,7 @@ asyncmcp proxy server.
 """
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
 
@@ -149,8 +150,6 @@ def create_proxy_server(
 
 def generate_session_id() -> str:
     """Generate a unique session ID."""
-    import uuid
-
     return str(uuid.uuid4())
 
 

@@ -28,9 +28,9 @@ from typing import Optional
 import boto3
 import click
 
-from asyncmcp.proxy import ProxyConfig, ProxyServer, create_proxy_server
-from asyncmcp.sqs.utils import SqsClientConfig
+from asyncmcp.proxy import ProxyConfig, ProxyServer
 from asyncmcp.sns_sqs.utils import SnsSqsClientConfig
+from asyncmcp.sqs.utils import SqsClientConfig
 from asyncmcp.webhook.utils import WebhookClientConfig
 
 # Configure logging

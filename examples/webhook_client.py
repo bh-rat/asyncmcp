@@ -49,8 +49,8 @@ from shared import (
 from starlette.applications import Starlette
 from starlette.routing import Route
 
-from asyncmcp.webhook.utils import WebhookClientConfig
 from asyncmcp.webhook.client import webhook_client
+from asyncmcp.webhook.utils import WebhookClientConfig
 
 # Add a global flag to track initialization
 _init_complete = False

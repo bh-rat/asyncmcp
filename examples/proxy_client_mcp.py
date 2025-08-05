@@ -12,7 +12,6 @@ from typing import Optional
 import click
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
-import mcp.types as types
 
 
 async def run_client(proxy_url: str, auth_token: Optional[str] = None):
