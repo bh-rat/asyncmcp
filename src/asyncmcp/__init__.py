@@ -4,6 +4,7 @@ AsyncMCP: Async transports for Model Context Protocol
 
 from importlib.metadata import PackageNotFoundError, version
 
+from asyncmcp.proxy import ProxyConfig, ProxyServer, ProxySessionManager, create_proxy_server
 from asyncmcp.sns_sqs.client import sns_sqs_client
 from asyncmcp.sns_sqs.manager import SnsSqsSessionManager
 from asyncmcp.sns_sqs.server import SnsSqsTransport, sns_sqs_server
@@ -32,10 +33,10 @@ except PackageNotFoundError:
 # Optional FastMCP integration
 try:
     from asyncmcp.fastmcp import AsyncMCPTransport, create_fastmcp_client, run_fastmcp_server
+
     _FASTMCP_AVAILABLE = True
 except ImportError:
     _FASTMCP_AVAILABLE = False
-
 
 __all__ = [
     # SQS Transport
@@ -64,14 +65,21 @@ __all__ = [
     "StreamableHTTPWebhookConfig",
     "StreamableHTTPWebhookClientConfig",
     "webhook_tool",
+    # Proxy server
+    "ProxyConfig",
+    "ProxyServer",
+    "ProxySessionManager",
+    "create_proxy_server",
     # Package info
     "__version__",
 ]
 
 # Add FastMCP exports if available
 if _FASTMCP_AVAILABLE:
-    __all__.extend([
-        "AsyncMCPTransport",
-        "create_fastmcp_client", 
-        "run_fastmcp_server",
-    ])
+    __all__.extend(
+        [
+            "AsyncMCPTransport",
+            "create_fastmcp_client",
+            "run_fastmcp_server",
+        ]
+    )
