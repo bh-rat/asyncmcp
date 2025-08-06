@@ -36,7 +36,7 @@ The whole idea of an **MCP server with async transport layer** is that it doesn'
 
 ## Supported Transport Types
 
-AsyncMCP provides three different transport implementations for different use cases:
+AsyncMCP provides four different transport implementations for different use cases:
 
 ### 1. SNS+SQS Transport
 
@@ -74,6 +74,27 @@ AsyncMCP provides three different transport implementations for different use ca
 - **Features**: Selective transport routing with explicit tool configuration, single session management, built on MCP StreamableHTTP base
 - **Use Case**: Applications with mixed synchronous/asynchronous operations, real-time + batch processing
 
+## Proxy Server
+
+AsyncMCP includes a proxy server that bridges standard MCP transports (StreamableHTTP/stdio) with async transports:
+
+**Features**:
+- Exposes standard MCP StreamableHTTP endpoint for MCP clients
+- Single endpoint handles both SSE (GET) and messages (POST)
+- Forwards requests to any asyncmcp backend transport
+- Session isolation for concurrent clients
+- Optional authentication and CORS support
+- Compatible with standard MCP SDK clients
+
+**Quick Start**:
+```bash
+# Run proxy with SQS backend
+uv run python examples/proxy_server.py --backend sqs
+
+# With authentication
+uv run python examples/proxy_server.py --backend sqs --auth-token "secret"
+```
+
 ## Installation and Usage
 
 ```bash
@@ -88,7 +109,32 @@ pip install asyncmcp
 
 ## Basic Usage Examples
 
-Note: We don't support FastMCP yet. The examples in this repo use the [basic way of creating MCP servers and clients](https://modelcontextprotocol.io/docs/concepts/architecture#implementation-example).
+### FastMCP Support
+
+AsyncMCP now includes experimental support for [FastMCP](https://github.com/jlowin/fastmcp), allowing you to use FastMCP's decorator-based API with async transports:
+
+```python
+from fastmcp import FastMCP
+from asyncmcp.fastmcp import run_fastmcp_server
+
+# Create FastMCP server
+mcp = FastMCP("my-server")
+
+@mcp.tool()
+def add(a: int, b: int) -> int:
+    return a + b
+
+# Run on async transport
+await run_fastmcp_server(
+    mcp,
+    transport_type="sqs",
+    server_config=sqs_server_config,
+    client_config=sqs_client_config,
+    low_level_clients={"sqs_client": sqs_client}
+)
+```
+
+See `examples/fastmcp_example.py` for a complete example.
 
 ### SNS+SQS Transport
 
