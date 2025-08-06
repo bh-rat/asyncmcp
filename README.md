@@ -379,6 +379,7 @@ uv run examples/streamable_http_webhook_client.py --server-url http://localhost:
 ### General
 - **Response Handling**: Async nature means responses may not be immediate
 - **Session Context**: Storage mechanism handled by server application, not transport
+- **Proxy Multiple Sessions**: The asyncmcp proxy has limited support for multiple concurrent sessions from the same proxy instance. Due to the MCP protocol design where session IDs are server-generated (not client-provided), async transports like SQS cannot correlate initialize responses to specific proxy sessions when multiple sessions share the same backend connection. Each proxy session effectively requires its own backend connection with dedicated response queues.
 
 ### AWS-Based Transports (SNS+SQS, SQS)
 - **Message Size**: SQS message size limits apply (256KB standard, 2MB extended)

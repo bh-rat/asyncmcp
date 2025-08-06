@@ -29,6 +29,8 @@ try:
 except PackageNotFoundError:
     __version__ = "0.0.0"
 
+# Proxy server
+from asyncmcp.proxy import ProxyConfig, ProxyServer, ProxySessionManager, create_proxy_server
 
 __all__ = [
     # SQS Transport
@@ -57,6 +59,11 @@ __all__ = [
     "StreamableHTTPWebhookConfig",
     "StreamableHTTPWebhookClientConfig",
     "webhook_tool",
+    # Proxy server
+    "ProxyConfig",
+    "ProxyServer",
+    "ProxySessionManager",
+    "create_proxy_server",
     # Package info
     "__version__",
 ]

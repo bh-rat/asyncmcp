@@ -11,6 +11,7 @@ This server demonstrates:
 
 import asyncio
 import logging
+
 import anyio
 import click
 import mcp.types as types
@@ -20,8 +21,8 @@ from mcp.shared._httpx_utils import create_mcp_http_client
 from shared import print_colored
 
 from asyncmcp.streamable_http_webhook import (
-    StreamableHTTPWebhookSessionManager,
     StreamableHTTPWebhookConfig,
+    StreamableHTTPWebhookSessionManager,
     webhook_tool,
 )
 
