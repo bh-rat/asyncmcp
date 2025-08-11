@@ -6,6 +6,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 
+import anyio
 import httpx
 import mcp.types as types
 import orjson
@@ -21,7 +22,7 @@ class WebhookServerConfig:
 
     # HTTP client configuration for sending webhooks to clients
     timeout_seconds: float = 30.0
-    max_retries: int = 0  # No retries as specified
+    max_retries: int = 1  # Allow one retry by default
 
     # Transport configuration
     transport_timeout_seconds: float | None = None
@@ -36,7 +37,7 @@ class WebhookClientConfig:
 
     # HTTP client configuration
     timeout_seconds: float = 30.0
-    max_retries: int = 0  # No retries as specified
+    max_retries: int = 1  # Allow one retry by default
 
     # Transport configuration
     client_id: str | None = None
@@ -102,29 +103,41 @@ async def send_webhook_response(
     session_message: SessionMessage,
     session_id: str | None,
     client_id: str | None,
+    max_retries: int = 0,
 ) -> None:
-    """Send a response via webhook."""
-    try:
-        headers = await create_http_headers(session_message, session_id, client_id)
-        # Ensure X-Session-ID is always set
-        if session_id:
-            headers["X-Session-ID"] = session_id
-        json_body = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+    """Send a response via webhook with retry logic."""
+    headers = await create_http_headers(session_message, session_id, client_id)
+    # Ensure X-Session-ID is always set
+    if session_id:
+        headers["X-Session-ID"] = session_id
+    json_body = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
 
-        response = await http_client.post(
-            webhook_url,
-            headers=headers,
-            content=json_body,
-        )
-        response.raise_for_status()
-        logger.debug(f"Webhook response sent successfully to {webhook_url}")
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = await http_client.post(
+                webhook_url,
+                headers=headers,
+                content=json_body,
+            )
+            response.raise_for_status()
+            # Webhook response sent successfully
+            return
 
-    except httpx.HTTPError as e:
-        logger.error(f"Failed to send webhook response to {webhook_url}: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error sending webhook response: {e}")
-        raise
+        except httpx.HTTPError as e:
+            last_error = e
+            if attempt < max_retries:
+                logger.warning(f"Webhook delivery attempt {attempt + 1} failed to {webhook_url}: {e}, retrying...")
+                await anyio.sleep(0.1 * (attempt + 1))  # Brief exponential backoff
+            else:
+                logger.error(f"Failed to send webhook response to {webhook_url} after {max_retries + 1} attempts: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error sending webhook response: {e}")
+            raise
+
+    # If we get here, all retries failed
+    if last_error:
+        raise last_error
 
 
 def extract_webhook_url_from_meta(message: types.JSONRPCMessage) -> str | None:

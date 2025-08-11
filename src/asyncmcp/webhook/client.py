@@ -114,7 +114,6 @@ class WebhookClient:
 
             if self.read_stream_writer:
                 await self.read_stream_writer.send(session_message)
-
             return Response(
                 content=orjson.dumps({"status": "success"}),
                 media_type="application/json",
@@ -214,7 +213,6 @@ async def webhook_client(
         """Task that sends requests to the server."""
         async with write_stream_reader:
             async for session_message in write_stream_reader:
-                await anyio.lowlevel.checkpoint()
                 await client.send_request(session_message)
 
     # Initialize HTTP client

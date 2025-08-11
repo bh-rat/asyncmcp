@@ -255,8 +255,7 @@ def main(server_port, webhook_port, client_id) -> int:
         print_colored("🔧 Configuring webhook transport", "yellow")
 
         config = WebhookClientConfig(
-            server_url=f"http://localhost:{server_port}/mcp/request",
-            client_id=client_id,
+            server_url=f"http://localhost:{server_port}/mcp/request", client_id=client_id, timeout_seconds=30.0
         )
 
         webhook_path = "/webhook/response"
