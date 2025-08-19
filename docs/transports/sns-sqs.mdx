@@ -1,0 +1,107 @@
+---
+title: "SNS+SQS Transport"
+description: "AWS SNS with SQS transport for asyncmcp - pub/sub messaging with fanout capabilities"
+---
+
+## Overview
+
+The SNS+SQS transport combines AWS Simple Notification Service (SNS) topics with SQS queues to provide powerful pub/sub messaging with fanout capabilities. Perfect for broadcasting messages to multiple consumers and event-driven architectures.
+
+<Info>
+SNS+SQS transport uses topic-based routing where servers subscribe to topics and clients can broadcast messages to multiple subscribers simultaneously.
+</Info>
+
+## Examples
+
+View complete working examples in the GitHub repository:
+
+- [SNS+SQS Server Example](https://github.com/bh-rat/asyncmcp/blob/main/examples/website_server.py)
+- [SNS+SQS Client Example](https://github.com/bh-rat/asyncmcp/blob/main/examples/website_client.py)
+
+## Quick Start
+
+### Basic Usage
+
+```python
+# Server
+from asyncmcp.sns_sqs import sns_sqs_server
+from asyncmcp import SnsSqsServerConfig
+
+config = SnsSqsServerConfig(
+    sqs_queue_url="https://sqs.region.amazonaws.com/account/server-queue"
+)
+
+async with sns_sqs_server(config, sqs_client, sns_client) as (read, write):
+    await app.run(read, write, init_options)
+```
+
+```python
+# Client
+from asyncmcp.sns_sqs import sns_sqs_client
+from asyncmcp import SnsSqsClientConfig
+
+config = SnsSqsClientConfig(
+    sns_topic_arn="arn:aws:sns:region:account:requests",
+    sqs_queue_url="https://sqs.region.amazonaws.com/account/client-queue"
+)
+
+async with sns_sqs_client(config, sqs_client, sns_client, client_topic_arn) as (read, write):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+```
+
+## Configuration
+
+### Server Configuration
+
+**Class:** [`SnsSqsServerConfig`](https://github.com/bh-rat/asyncmcp/blob/main/src/asyncmcp/sns_sqs/utils.py#L13)
+
+<ParamField path="sqs_queue_url" type="string" required>
+  URL of the SQS queue where the server receives messages from SNS topic.
+  
+  Example: `https://sqs.us-east-1.amazonaws.com/123456789/mcp-server-queue`
+</ParamField>
+
+<ParamField path="max_messages" type="int" default="10">
+  Maximum messages to retrieve per poll (1-10).
+</ParamField>
+
+<ParamField path="wait_time_seconds" type="int" default="20">
+  Long polling duration (0-20) for SQS.
+</ParamField>
+
+<ParamField path="visibility_timeout_seconds" type="int" default="30">
+  Seconds a message remains invisible after retrieval.
+</ParamField>
+
+<ParamField path="poll_interval_seconds" type="float" default="5.0">
+  Seconds between queue polling attempts.
+</ParamField>
+
+<ParamField path="message_attributes" type="dict">
+  Custom attributes to include with messages.
+</ParamField>
+
+### Client Configuration
+
+**Class:** [`SnsSqsClientConfig`](https://github.com/bh-rat/asyncmcp/blob/main/src/asyncmcp/sns_sqs/utils.py#L31)
+
+<ParamField path="sqs_queue_url" type="string" required>
+  URL of the client's SQS queue for receiving responses.
+  
+  Example: `https://sqs.us-east-1.amazonaws.com/123456789/mcp-client-queue`
+</ParamField>
+
+<ParamField path="sns_topic_arn" type="string" required>
+  ARN of the SNS topic for publishing requests.
+  
+  Example: `arn:aws:sns:us-east-1:123456789:mcp-requests`
+</ParamField>
+
+<ParamField path="client_id" type="string">
+  Unique client identifier. Auto-generated if not provided.
+</ParamField>
+
+<ParamField path="message_attributes" type="dict">
+  Custom attributes to include with messages.
+</ParamField>

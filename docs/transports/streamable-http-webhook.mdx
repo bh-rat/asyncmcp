@@ -1,0 +1,127 @@
+---
+title: "StreamableHTTP + Webhook Transport" 
+description: "Combine SSE streaming with webhook delivery for mixed sync/async operations"
+---
+
+## Overview
+
+The StreamableHTTP + Webhook transport combines MCP's StreamableHTTP (with Server-Sent Events) for immediate responses with webhook delivery for long-running async operations. This provides the best of both worlds - real-time streaming for quick operations and webhook callbacks for async processing.
+
+<Info>
+This transport allows selective routing where specific tools use webhook delivery while others use SSE streaming, all within a single session.
+</Info>
+
+## Examples
+
+View complete working examples in the GitHub repository:
+
+- [StreamableHTTP + Webhook Server Example](https://github.com/bh-rat/asyncmcp/blob/main/examples/streamable_http_webhook_server.py)
+- [StreamableHTTP + Webhook Client Example](https://github.com/bh-rat/asyncmcp/blob/main/examples/streamable_http_webhook_client.py)
+
+## Quick Start
+
+### Basic Usage
+
+```python
+# Server with selective routing
+from asyncmcp.streamable_http_webhook import (
+    StreamableHTTPWebhookSessionManager,
+    StreamableHTTPWebhookConfig
+)
+
+# Configure the transport
+config = StreamableHTTPWebhookConfig()
+
+# Define which tools use webhook
+webhook_tools = {"process_batch", "analyze_large_dataset"}
+
+manager = StreamableHTTPWebhookSessionManager(
+    mcp_app,
+    config,
+    webhook_tools=webhook_tools
+)
+
+# FastAPI integration
+@app.post("/mcp")
+async def handle_mcp(request: Request):
+    return await manager.handle_request(request)
+```
+
+```python
+# Client
+from asyncmcp.streamable_http_webhook import (
+    streamable_http_webhook_client,
+    StreamableHTTPWebhookClientConfig
+)
+
+config = StreamableHTTPWebhookClientConfig(
+    server_url="http://api.example.com/mcp",
+    webhook_url="http://client.example.com/webhook"
+)
+
+async with streamable_http_webhook_client(config) as (read_stream, write_stream, client):
+    # Use the streams for MCP communication
+    # Quick tool - uses SSE
+    # Async tool - uses webhook
+    pass
+```
+
+## Configuration
+
+### Server Configuration
+
+**Class:** [`StreamableHTTPWebhookConfig`](https://github.com/bh-rat/asyncmcp/blob/main/src/asyncmcp/streamable_http_webhook/utils.py#L46)
+
+<ParamField path="json_response" type="boolean" default="false">
+  Use JSON responses instead of SSE streaming. Set to false for SSE.
+</ParamField>
+
+<ParamField path="timeout_seconds" type="float" default="30.0">
+  HTTP timeout for SSE responses.
+</ParamField>
+
+<ParamField path="webhook_timeout" type="float" default="30.0">
+  Timeout for webhook delivery attempts.
+</ParamField>
+
+<ParamField path="webhook_max_retries" type="int" default="1">
+  Maximum retry attempts for failed webhook deliveries.
+</ParamField>
+
+<ParamField path="transport_timeout_seconds" type="float">
+  Optional overall transport timeout.
+</ParamField>
+
+**Note:** The `webhook_tools` set is configured at the session manager level, not in the config.
+
+### Client Configuration
+
+**Class:** [`StreamableHTTPWebhookClientConfig`](https://github.com/bh-rat/asyncmcp/blob/main/src/asyncmcp/streamable_http_webhook/utils.py#L63)
+
+<ParamField path="server_url" type="string" default="http://localhost:8000/mcp">
+  StreamableHTTP endpoint URL.
+  
+  Example: `http://api.example.com/mcp`
+</ParamField>
+
+<ParamField path="webhook_url" type="string" default="http://localhost:8001/webhook">
+  Webhook URL for async responses.
+  
+  Example: `http://client.example.com/webhook`
+</ParamField>
+
+<ParamField path="timeout_seconds" type="float" default="30.0">
+  HTTP request timeout in seconds.
+</ParamField>
+
+<ParamField path="max_retries" type="int" default="1">
+  Number of retry attempts for failed requests.
+</ParamField>
+
+<ParamField path="client_id" type="string">
+  Unique client identifier. Auto-generated if not provided.
+</ParamField>
+
+<ParamField path="transport_timeout_seconds" type="float">
+  Optional overall transport timeout.
+</ParamField>

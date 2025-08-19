@@ -1,0 +1,337 @@
+---
+title: "Installation"
+description: "Install asyncmcp and set up your development environment"
+---
+
+asyncmcp can be installed using various Python package managers. Choose the one that best fits your workflow.
+
+## Package Managers
+
+<Tabs>
+  <Tab title="uv (Recommended)">
+    ```bash
+    # Add to current project
+    uv add asyncmcp
+    
+    # Install globally
+    uv tool install asyncmcp
+    
+    # Install with specific extras
+    uv add asyncmcp[dev]  # Development dependencies
+    uv add asyncmcp[test] # Testing dependencies
+    ```
+    
+    <Tip>
+    [uv](https://github.com/astral-sh/uv) is a fast Python package manager that we recommend for asyncmcp development.
+    </Tip>
+  </Tab>
+  
+  <Tab title="pip">
+    ```bash
+    # Basic installation
+    pip install asyncmcp
+    
+    # Install with extras
+    pip install asyncmcp[dev]  # Development dependencies
+    pip install asyncmcp[test] # Testing dependencies
+    
+    # Install from source
+    pip install git+https://github.com/bh-rat/asyncmcp.git
+    ```
+  </Tab>
+  
+  <Tab title="poetry">
+    ```bash
+    # Add to project
+    poetry add asyncmcp
+    
+    # Install with extras
+    poetry add asyncmcp[dev]  # Development dependencies
+    poetry add asyncmcp[test] # Testing dependencies
+    ```
+  </Tab>
+  
+  <Tab title="pipenv">
+    ```bash
+    # Add to Pipfile
+    pipenv install asyncmcp
+    
+    # Install with extras
+    pipenv install asyncmcp[dev]  # Development dependencies
+    pipenv install asyncmcp[test] # Testing dependencies
+    ```
+  </Tab>
+</Tabs>
+
+## Requirements
+
+<Info>
+asyncmcp requires **Python 3.10 or higher**.
+</Info>
+
+### Core Dependencies
+
+asyncmcp automatically installs these core dependencies:
+
+- **mcp** - Model Context Protocol implementation
+- **anyio** - Async runtime support
+- **httpx** - HTTP client for webhook transport
+- **boto3** - AWS SDK for SQS/SNS transports (optional)
+- **starlette** - ASGI framework for webhook server
+
+### Optional Dependencies
+
+Depending on your transport choice, you may need additional packages:
+
+<AccordionGroup>
+  <Accordion title="AWS Transports (SQS, SNS+SQS)">
+    ```bash
+    # boto3 is required for AWS transports
+    uv add boto3
+    
+    # For local development with LocalStack
+    uv add localstack
+    ```
+  </Accordion>
+  
+  <Accordion title="Webhook Transport">
+    ```bash
+    # For production webhook servers
+    uv add uvicorn  # ASGI server
+    uv add gunicorn # Production server
+    ```
+  </Accordion>
+  
+  <Accordion title="Development Tools">
+    ```bash
+    # Install development dependencies
+    uv add --dev pytest pytest-asyncio pyright ruff
+    
+    # Or install with extras
+    uv add asyncmcp[dev]
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Verify Installation
+
+After installation, verify asyncmcp is properly installed:
+
+<CodeGroup>
+```python Python
+import asyncmcp
+print(f"asyncmcp version: {asyncmcp.__version__}")
+
+# Check available transports
+from asyncmcp import (
+    SqsClientConfig,
+    SnsSqsClientConfig, 
+    WebhookClientConfig,
+    StreamableHTTPWebhookClientConfig
+)
+print("✅ All transports available")
+```
+
+```bash Terminal
+# Check version
+python -c "import asyncmcp; print(asyncmcp.__version__)"
+
+# Run tests
+uv run pytest tests/
+```
+</CodeGroup>
+
+## Development Setup
+
+For contributing to asyncmcp or running examples:
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/bh-rat/asyncmcp.git
+    cd asyncmcp
+    ```
+  </Step>
+  
+  <Step title="Install Dependencies">
+    ```bash
+    # Install with uv (recommended)
+    uv sync
+    
+    # Or with pip
+    pip install -e .[dev,test]
+    ```
+  </Step>
+  
+  <Step title="Install Pre-commit Hooks">
+    ```bash
+    pre-commit install
+    ```
+    
+    <Note>
+    Pre-commit hooks automatically format code and check for linting issues before commits.
+    </Note>
+  </Step>
+  
+  <Step title="Set Up LocalStack">
+    ```bash
+    # Install LocalStack
+    uv add localstack
+    
+    # Start LocalStack
+    localstack start
+    
+    # Set up test resources
+    uv run examples/setup.py
+    ```
+    
+    <Check>
+    LocalStack should be running on `http://localhost:4566`
+    </Check>
+  </Step>
+</Steps>
+
+## Environment Configuration
+
+### AWS Configuration
+
+For AWS-based transports (SQS, SNS+SQS), configure your AWS credentials:
+
+<Tabs>
+  <Tab title="LocalStack (Development)">
+    ```bash .env
+    # LocalStack configuration
+    AWS_ENDPOINT_URL=http://localhost:4566
+    AWS_REGION=us-east-1
+    AWS_ACCESS_KEY_ID=test
+    AWS_SECRET_ACCESS_KEY=test
+    ```
+  </Tab>
+  
+  <Tab title="AWS (Production)">
+    ```bash .env
+    # AWS configuration
+    AWS_REGION=us-east-1
+    AWS_ACCESS_KEY_ID=your_access_key
+    AWS_SECRET_ACCESS_KEY=your_secret_key
+    
+    # Optional: Use IAM roles instead
+    AWS_PROFILE=your_profile
+    ```
+  </Tab>
+</Tabs>
+
+### Python Path Configuration
+
+If running examples directly:
+
+```bash
+# Add src to Python path
+export PYTHONPATH="${PYTHONPATH}:./src"
+
+# Or use uv run (automatically handles paths)
+uv run examples/website_server.py
+```
+
+## Docker Setup
+
+For containerized deployments:
+
+<CodeGroup>
+```dockerfile Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY pyproject.toml .
+RUN pip install uv && uv pip install asyncmcp
+
+# Copy application
+COPY . .
+
+# Run server
+CMD ["python", "server.py"]
+```
+
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  localstack:
+    image: localstack/localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sqs,sns
+      - DEBUG=1
+  
+  mcp-server:
+    build: .
+    depends_on:
+      - localstack
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    command: python server.py
+```
+</CodeGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="ImportError: No module named 'asyncmcp'">
+    Ensure asyncmcp is installed in your current environment:
+    ```bash
+    pip list | grep asyncmcp
+    ```
+    If not listed, reinstall:
+    ```bash
+    uv add asyncmcp
+    ```
+  </Accordion>
+  
+  <Accordion title="boto3 not found">
+    AWS transports require boto3:
+    ```bash
+    uv add boto3
+    ```
+  </Accordion>
+  
+  <Accordion title="LocalStack connection refused">
+    Ensure LocalStack is running:
+    ```bash
+    localstack status
+    localstack start  # If not running
+    ```
+  </Accordion>
+  
+  <Accordion title="Python version error">
+    asyncmcp requires Python 3.10+. Check your version:
+    ```bash
+    python --version
+    ```
+    Use pyenv or similar to install a compatible version.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run your first asyncmcp server and client
+  </Card>
+  
+  <Card title="Core Concepts" icon="book" href="/concepts/overview">
+    Understand async transports and how they work
+  </Card>
+  
+  <Card title="Local Development" icon="laptop" href="/guides/local-development">
+    Set up LocalStack for development
+  </Card>
+  
+  <Card title="Examples" icon="code" href="/examples/basic-examples">
+    Browse example implementations
+  </Card>
+</CardGroup>
