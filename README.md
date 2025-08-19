@@ -18,9 +18,8 @@
 
 Quick links:
 - [Quickstart Guide](https://bh-rat.github.io/asyncmcp/quickstart) - Get running in 5 minutes
-- [Transport Overview](https://bh-rat.github.io/asyncmcp/transports/overview) - Choose the right transport
+- [Concepts Overview](https://bh-rat.github.io/asyncmcp/concepts/overview) - Choose the right transport
 - [Examples](https://bh-rat.github.io/asyncmcp/examples/basic-examples) - Working code examples
-- [API Reference](https://bh-rat.github.io/asyncmcp/api-reference/configurations) - Configuration options
 
 ---
 
