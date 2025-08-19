@@ -1,4 +1,4 @@
-name: Deploy Mintlify Documentation
+name: Deploy Documentation (Static)
 
 on:
   push:
@@ -39,15 +39,22 @@ jobs:
       - name: Install Mintlify CLI
         run: npm install -g mintlify
         
-      - name: Build documentation
+      - name: Start Mintlify dev server and export
         run: |
           cd docs
-          mintlify build
+          # Start dev server in background
+          timeout 30 mintlify dev --port 3000 &
+          # Wait for server to start
+          sleep 10
+          # Use wget to mirror the site
+          wget --mirror --convert-links --adjust-extension --page-requisites --no-parent http://localhost:3000 -P ./static
+          # Move to expected location
+          mv ./static/localhost:3000 ./out
         
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/.mintlify/build
+          path: docs/out
   
   deploy:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/documentation-init')
