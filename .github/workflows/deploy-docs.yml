@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - documentation-init
     paths:
       - 'docs/**'
       - '.github/workflows/deploy-docs.yml'
@@ -57,9 +56,10 @@ jobs:
           path: docs/out
   
   deploy:
+    # Only deploy on push to main or manual trigger
     if: |
-      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/documentation-init')) ||
-      (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/documentation-init'))
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
