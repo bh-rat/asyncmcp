@@ -57,7 +57,9 @@ jobs:
           path: docs/out
   
   deploy:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/documentation-init')
+    if: |
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/documentation-init')) ||
+      (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/documentation-init'))
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
