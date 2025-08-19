@@ -1,0 +1,97 @@
+---
+title: "Webhook Transport"
+description: "HTTP webhook transport for asyncmcp - web-native async messaging"
+---
+
+## Overview
+
+The Webhook transport provides HTTP-based asynchronous messaging, perfect for web services and microservice architectures. It uses standard HTTP POST requests for communication without requiring cloud provider dependencies.
+
+<Info>
+Webhook transport uses HTTP POST requests where the client sends requests to server endpoints and provides a webhook URL for receiving async responses.
+</Info>
+
+## Examples
+
+View complete working examples in the GitHub repository:
+
+- [Webhook Server Example](https://github.com/bh-rat/asyncmcp/blob/main/examples/webhook_server.py)
+- [Webhook Client Example](https://github.com/bh-rat/asyncmcp/blob/main/examples/webhook_client.py)
+
+## Quick Start
+
+### Basic Usage
+
+```python
+# Server (FastAPI)
+from asyncmcp.webhook import WebhookSessionManager
+from fastapi import FastAPI, Request
+
+app = FastAPI()
+manager = WebhookSessionManager(mcp_app)
+
+@app.post("/mcp/request")
+async def handle_request(request: Request):
+    return await manager.handle_request(request)
+```
+
+```python
+# Client
+from asyncmcp.webhook import webhook_client
+from asyncmcp import WebhookClientConfig
+
+config = WebhookClientConfig(
+    server_url="https://api.example.com/mcp/request"
+)
+
+async with webhook_client(config, webhook_path="/webhook") as client:
+    async with ClientSession(client.read, client.write) as session:
+        # Webhook URL provided automatically in initialize
+        await session.initialize()
+```
+
+## Configuration
+
+### Server Configuration
+
+**Class:** [`WebhookServerConfig`](https://github.com/bh-rat/asyncmcp/blob/main/src/asyncmcp/webhook/utils.py#L19)
+
+<ParamField path="timeout_seconds" type="float" default="30.0">
+  HTTP timeout for sending webhooks to clients.
+</ParamField>
+
+<ParamField path="max_retries" type="int" default="0">
+  Number of retry attempts for failed webhook deliveries (default: no retries).
+</ParamField>
+
+<ParamField path="transport_timeout_seconds" type="float">
+  Optional overall transport timeout.
+</ParamField>
+
+### Client Configuration
+
+**Class:** [`WebhookClientConfig`](https://github.com/bh-rat/asyncmcp/blob/main/src/asyncmcp/webhook/utils.py#L31)
+
+<ParamField path="server_url" type="string" default="http://localhost:8000/mcp/request">
+  URL of the server's HTTP endpoint.
+  
+  Example: `https://api.example.com/mcp/request`
+</ParamField>
+
+<ParamField path="timeout_seconds" type="float" default="30.0">
+  HTTP request timeout in seconds.
+</ParamField>
+
+<ParamField path="max_retries" type="int" default="0">
+  Number of retry attempts for failed requests (default: no retries).
+</ParamField>
+
+<ParamField path="client_id" type="string">
+  Unique client identifier. Auto-generated if not provided.
+</ParamField>
+
+<ParamField path="transport_timeout_seconds" type="float">
+  Optional overall transport timeout.
+</ParamField>
+
+**Note:** The webhook URL is provided via the `_meta` field in the initialize request and is handled automatically by the client.

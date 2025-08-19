@@ -1,0 +1,114 @@
+---
+title: "SQS Transport"
+description: "AWS Simple Queue Service transport for asyncmcp - reliable queue-based async messaging"
+---
+
+## Overview
+
+<Info>
+SQS transport uses direct queue-to-queue communication where the server listens on a request queue and sends responses to client-specific response queues.
+</Info>
+
+## Examples
+
+View complete working examples in the GitHub repository:
+
+- [SQS Server Example](https://github.com/bh-rat/asyncmcp/blob/main/examples/website_server.py)
+- [SQS Client Example](https://github.com/bh-rat/asyncmcp/blob/main/examples/website_client.py)  
+- [LocalStack Setup](https://github.com/bh-rat/asyncmcp/blob/main/examples/setup.py)
+
+## Quick Start
+
+### Basic Usage
+
+```python
+# Server
+from asyncmcp.sqs import sqs_server
+from asyncmcp import SqsServerConfig
+
+config = SqsServerConfig(
+    read_queue_url="https://sqs.region.amazonaws.com/account/requests"
+)
+
+async with sqs_server(config, sqs_client) as (read, write):
+    await app.run(read, write, init_options)
+```
+
+```python
+# Client
+from asyncmcp.sqs import sqs_client
+from asyncmcp import SqsClientConfig
+
+config = SqsClientConfig(
+    read_queue_url="https://sqs.region.amazonaws.com/account/requests",
+    response_queue_url="https://sqs.region.amazonaws.com/account/responses"
+)
+
+async with sqs_client(config, sqs_client) as (read, write):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+```
+
+## Configuration
+
+### Server Configuration
+
+**Class:** [`SqsServerConfig`](https://github.com/bh-rat/asyncmcp/blob/main/src/asyncmcp/sqs/utils.py#L7)
+
+<ParamField path="read_queue_url" type="string" required>
+  URL of the SQS queue where the server receives requests.
+  
+  Example: `https://sqs.us-east-1.amazonaws.com/123456789/mcp-requests`
+</ParamField>
+
+<ParamField path="max_messages" type="int" default="10">
+  Maximum messages to retrieve per poll (1-10).
+</ParamField>
+
+<ParamField path="wait_time_seconds" type="int" default="20">
+  Long polling duration (0-20). Use 20 for cost optimization.
+</ParamField>
+
+<ParamField path="visibility_timeout_seconds" type="int" default="30">
+  Seconds a message remains invisible after retrieval.
+</ParamField>
+
+<ParamField path="poll_interval_seconds" type="float" default="5.0">
+  Seconds between queue polling attempts. Lower values reduce latency but increase costs.
+</ParamField>
+
+<ParamField path="message_attributes" type="dict">
+  Custom attributes to include with messages.
+</ParamField>
+
+<ParamField path="transport_timeout_seconds" type="float">
+  Optional overall transport timeout.
+</ParamField>
+
+### Client Configuration
+
+**Class:** [`SqsClientConfig`](https://github.com/bh-rat/asyncmcp/blob/main/src/asyncmcp/sqs/utils.py#L25)
+
+<ParamField path="read_queue_url" type="string" required>
+  URL of the server's request queue.
+  
+  Example: `https://sqs.us-east-1.amazonaws.com/123456789/mcp-requests`
+</ParamField>
+
+<ParamField path="response_queue_url" type="string" required>
+  URL of the client's response queue. Can be pre-created or dynamically generated.
+  
+  Example: `https://sqs.us-east-1.amazonaws.com/123456789/mcp-responses`
+</ParamField>
+
+<ParamField path="client_id" type="string">
+  Unique client identifier. Auto-generated if not provided.
+</ParamField>
+
+<ParamField path="message_attributes" type="dict">
+  Custom attributes to include with messages.
+</ParamField>
+
+<ParamField path="transport_timeout_seconds" type="float">
+  Optional overall transport timeout.
+</ParamField>

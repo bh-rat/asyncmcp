@@ -1,0 +1,71 @@
+name: Deploy Documentation (Static)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy-docs.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install Mintlify CLI
+        run: npm install -g mintlify
+        
+      - name: Start Mintlify dev server and export
+        run: |
+          cd docs
+          # Start dev server in background
+          timeout 30 mintlify dev --port 3000 &
+          # Wait for server to start
+          sleep 10
+          # Use wget to mirror the site
+          wget --mirror --convert-links --adjust-extension --page-requisites --no-parent http://localhost:3000 -P ./static
+          # Move to expected location
+          mv ./static/localhost:3000 ./out
+        
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/out
+  
+  deploy:
+    # Only deploy on push to main or manual trigger
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

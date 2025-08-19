@@ -1,0 +1,187 @@
+---
+title: "Introduction"
+description: "Async transport layers for Model Context Protocol - enabling queue-based and webhook communication for MCP servers"
+---
+
+<Note>
+asyncmcp is currently in **alpha**. APIs may change as we refine the implementation based on community feedback.
+
+**What's not supported yet:**
+- Direct integration with standard MCP clients (Claude, Cursor, etc.) without using the proxy server. All MCP servers will only work with standard clients through the asyncmcp proxy bridge.
+- Advanced features like sampling, elicitation are not supported on all transports.
+</Note>
+
+## What is asyncmcp?
+
+asyncmcp provides custom asynchronous transport layers for the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), enabling MCP servers to handle requests through queues, topics, and webhooks rather than requiring immediate responses through standard stdio or HTTP transports.
+
+<Frame caption="MCP Server working over AWS SQS queues">
+  <video controls autoplay muted loop>
+    <source src="https://github.com/user-attachments/assets/4b775ff8-02ae-4730-a822-3e1cedf9d744" type="video/mp4" />
+  </video>
+</Frame>
+
+## Why Async Transports?
+
+Traditional MCP transports (stdio, HTTP) require synchronous request-response patterns. However, many real-world contexts aren't immediately available:
+
+<CardGroup cols={2}>
+  <Card title="Batch Processing" icon="clock">
+    APIs that process data in batches and return results later
+  </Card>
+  <Card title="Webhooks" icon="webhook">
+    Services that notify through webhooks when processing completes
+  </Card>
+  <Card title="Queue Systems" icon="list">
+    Message queues that decouple producers from consumers
+  </Card>
+  <Card title="Long Operations" icon="hourglass">
+    Tasks that take minutes or hours to complete
+  </Card>
+</CardGroup>
+
+
+## Supported Transports
+
+<Tabs>
+  <Tab title="SQS">
+    **AWS Simple Queue Service** - Point-to-point messaging
+    - Direct queue-to-queue communication
+    - Guaranteed message delivery
+    - Simple, cost-effective for basic async needs
+  </Tab>
+  <Tab title="SNS+SQS">
+    **AWS SNS with SQS** - Pub/sub messaging
+    - Topic-based message routing
+    - Support for multiple subscribers
+    - Ideal for fanout patterns
+  </Tab>
+  <Tab title="Webhook">
+    **HTTP Webhooks** - Web-native async
+    - HTTP POST for requests and responses
+    - Works with existing web infrastructure
+  </Tab>
+  <Tab title="StreamableHTTP+Webhook">
+    **StreamableHTTP + Webhook** - Combined approach
+    - SSE for immediate responses
+    - Webhooks for async operations
+    - Selective routing per tool
+  </Tab>
+</Tabs>
+
+
+## How to use asyncmcp
+
+The approach depends on whether you control the client implementation:
+
+### You Control the Client
+
+If you're building your own client application, you can directly use asyncmcp transports:
+
+1. **Choose a transport** based on your requirements:
+   - **SQS**: Simple queue-based async, ideal for basic request-response patterns
+   - **SNS+SQS**: Topic-based routing for multiple subscribers or fanout scenarios
+   - **Webhook**: HTTP-based async for web services and existing infrastructure
+   - **StreamableHTTP+Webhook**: Hybrid approach for mixed sync/async operations
+
+2. **Implement both sides** using the matching transport client and server
+3. **See examples** in the [Quick Example](#quick-example) section below or browse the [Examples](/examples/basic-examples) documentation
+
+### You Don't Control the Client
+
+If you're working with standard MCP clients (Claude, Cursor, etc.) that only support stdio/HTTP:
+
+1. **Use the asyncmcp proxy server** to bridge between standard and async transports
+2. The proxy translates standard MCP requests to your chosen async transport
+3. **Learn more** in the [Proxy Server documentation](/proxy)
+
+## Quick Example
+
+Here's how simple it is to create an MCP server with async SQS transport:
+
+<CodeGroup>
+```python Server
+import boto3
+from asyncmcp.sqs import sqs_server
+from asyncmcp import SqsServerConfig
+from mcp.server.lowlevel import Server
+
+# Configure transport
+config = SqsServerConfig(
+    read_queue_url="https://sqs.region.amazonaws.com/account/requests"
+)
+
+# Create MCP server
+app = Server("my-async-server")
+
+# Add your tools
+@app.call_tool()
+async def process_data(name: str, arguments: dict):
+    # Long-running operation
+    result = await process_large_dataset(arguments["data"])
+    return [{"type": "text", "text": str(result)}]
+
+# Run with SQS transport
+async def main():
+    sqs_client = boto3.client('sqs')
+    async with sqs_server(config, sqs_client) as (read, write):
+        await app.run(read, write, InitializationOptions())
+```
+
+```python Client
+import boto3
+from asyncmcp.sqs import sqs_client
+from asyncmcp import SqsClientConfig
+from mcp.client import ClientSession
+
+# Configure transport
+config = SqsClientConfig(
+    read_queue_url="https://sqs.region.amazonaws.com/account/requests",
+    response_queue_url="https://sqs.region.amazonaws.com/account/responses"
+)
+
+# Connect to server
+async def main():
+    sqs_boto_client = boto3.client('sqs')
+    async with sqs_client(config, sqs_boto_client) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            
+            # Call tools asynchronously
+            result = await session.call_tool(
+                "process_data", 
+                arguments={"data": large_dataset}
+            )
+```
+</CodeGroup>
+
+
+## Getting Started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install asyncmcp and get started with your first server
+  </Card>
+  
+  <Card title="Transports" icon="route" href="/transports/sqs">
+    Explore available transports
+  </Card>
+  
+  <Card title="Examples" icon="code" href="/examples/basic-examples">
+    Browse working examples for each transport type
+  </Card>
+  
+  <Card title="Proxy Server" icon="server" href="/proxy">
+    Bridge standard MCP clients with async transports
+  </Card>
+</CardGroup>
+
+## Community & Support
+
+- **GitHub**: [github.com/bh-rat/asyncmcp](https://github.com/bh-rat/asyncmcp)
+- **Issues**: [Report bugs or request features](https://github.com/bh-rat/asyncmcp/issues)
+- **MCP Spec**: [modelcontextprotocol.io](https://modelcontextprotocol.io)
+
+## License
+
+asyncmcp is open source software licensed under the Apache License 2.0.

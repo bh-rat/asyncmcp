@@ -1,0 +1,97 @@
+---
+title: "Installation"
+description: "Install asyncmcp and get up and running with your first server and client"
+---
+
+<Info>
+This guide includes optional LocalStack setup for local AWS simulation.
+</Info>
+
+asyncmcp can be installed using various Python package managers:
+
+<Tabs>
+  <Tab title="uv (Recommended)">
+    ```bash
+    # Add to current project
+    uv add asyncmcp
+    
+    # Install globally
+    uv tool install asyncmcp
+    ```
+  </Tab>
+  
+  <Tab title="pip">
+    ```bash
+    # Basic installation
+    pip install asyncmcp
+    
+    # Install from source
+    pip install git+https://github.com/bh-rat/asyncmcp.git
+    ```
+  </Tab>
+  
+  <Tab title="poetry">
+    ```bash
+    # Add to project
+    poetry add asyncmcp
+    ```
+  </Tab>
+  
+  <Tab title="pipenv">
+    ```bash
+    # Add to Pipfile
+    pipenv install asyncmcp
+    ```
+  </Tab>
+</Tabs>
+
+<Info>
+asyncmcp requires **Python 3.10 or higher**.
+</Info>
+
+## Optional: LocalStack Setup
+
+If you want to test AWS transports locally without using real AWS resources:
+
+<Steps>
+  <Step title="Install LocalStack">
+    ```bash
+    uv add localstack
+    ```
+  </Step>
+  
+  <Step title="Start LocalStack">
+    ```bash
+    localstack start
+    ```
+    
+    LocalStack will run on `http://localhost:4566`
+  </Step>
+</Steps>
+
+## Next Steps
+
+Now that asyncmcp is installed, explore the specific transport guide for your use case:
+
+<CardGroup cols={2}>
+  <Card title="SQS Transport" icon="inbox" href="/transports/sqs">
+    Simple queue-based async communication
+  </Card>
+  
+  <Card title="SNS+SQS Transport" icon="broadcast" href="/transports/sns-sqs">
+    Topic-based pub/sub messaging
+  </Card>
+  
+  <Card title="Webhook Transport" icon="webhook" href="/transports/webhook">
+    HTTP POST-based async messaging
+  </Card>
+  
+  <Card title="StreamableHTTP+Webhook" icon="stream" href="/transports/streamable-http-webhook">
+    Combined SSE and webhook approach
+  </Card>
+</CardGroup>
+
+
+<Note>
+**Need Help?** Check out our [GitHub repository](https://github.com/bh-rat/asyncmcp) for more examples and to report issues.
+</Note>

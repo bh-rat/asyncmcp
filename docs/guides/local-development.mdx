@@ -1,0 +1,283 @@
+---
+title: "Local Development"
+description: "Set up LocalStack for asyncmcp development"
+---
+
+## Overview
+
+Set up a complete local development environment for asyncmcp using LocalStack to simulate AWS services.
+
+## Prerequisites
+
+<Steps>
+  <Step title="Install LocalStack">
+    ```bash
+    # Using pip
+    pip install localstack
+    
+    # Using Docker
+    docker pull localstack/localstack
+    
+    # Using Homebrew (macOS)
+    brew install localstack
+    ```
+  </Step>
+  
+  <Step title="Install AWS CLI">
+    ```bash
+    # Configure for LocalStack
+    aws configure set aws_access_key_id test
+    aws configure set aws_secret_access_key test
+    aws configure set region us-east-1
+    ```
+  </Step>
+  
+  <Step title="Install asyncmcp">
+    ```bash
+    # Clone repository
+    git clone https://github.com/bh-rat/asyncmcp.git
+    cd asyncmcp
+    
+    # Install with uv
+    uv sync
+    ```
+  </Step>
+</Steps>
+
+## Starting LocalStack
+
+<Tabs>
+  <Tab title="CLI">
+    ```bash
+    # Start LocalStack
+    localstack start
+    
+    # Verify it's running
+    localstack status
+    ```
+  </Tab>
+  
+  <Tab title="Docker">
+    ```bash
+    docker run -d \
+      --name localstack \
+      -p 4566:4566 \
+      -e SERVICES=sqs,sns \
+      -e DEBUG=1 \
+      localstack/localstack
+    ```
+  </Tab>
+  
+  <Tab title="Docker Compose">
+    ```yaml
+    # docker-compose.yml
+    version: '3.8'
+    services:
+      localstack:
+        image: localstack/localstack
+        ports:
+          - "4566:4566"
+        environment:
+          - SERVICES=sqs,sns
+          - DEBUG=1
+          - DATA_DIR=/tmp/localstack/data
+        volumes:
+          - ./localstack:/tmp/localstack
+    ```
+  </Tab>
+</Tabs>
+
+## Setting Up Resources
+
+### Create SQS Queues
+
+```python
+#!/usr/bin/env python3
+import boto3
+
+# LocalStack configuration
+config = {
+    "endpoint_url": "http://localhost:4566",
+    "region_name": "us-east-1",
+    "aws_access_key_id": "test",
+    "aws_secret_access_key": "test"
+}
+
+sqs = boto3.client("sqs", **config)
+
+# Create queues
+queues = [
+    "mcp-requests",
+    "mcp-responses",
+    "mcp-processor",
+    "mcp-consumer"
+]
+
+for queue_name in queues:
+    response = sqs.create_queue(
+        QueueName=queue_name,
+        Attributes={
+            'ReceiveMessageWaitTimeSeconds': '20',
+            'VisibilityTimeout': '30'
+        }
+    )
+    print(f"✅ Created queue: {response['QueueUrl']}")
+```
+
+### Create SNS Topics
+
+```python
+sns = boto3.client("sns", **config)
+
+# Create topics
+topics = [
+    "mcp-requests",
+    "mcp-responses"
+]
+
+for topic_name in topics:
+    response = sns.create_topic(Name=topic_name)
+    print(f"✅ Created topic: {response['TopicArn']}")
+    
+    # Subscribe queues to topics
+    if topic_name == "mcp-requests":
+        sns.subscribe(
+            TopicArn=response['TopicArn'],
+            Protocol='sqs',
+            Endpoint=f"arn:aws:sqs:us-east-1:000000000000:mcp-processor"
+        )
+```
+
+## Running Examples
+
+### Basic SQS Example
+
+```bash
+# Terminal 1: Start server
+uv run examples/website_server.py --transport sqs
+
+# Terminal 2: Start client
+uv run examples/website_client.py --transport sqs
+```
+
+### SNS+SQS Example
+
+```bash
+# Terminal 1: Start server
+uv run examples/website_server.py
+
+# Terminal 2: Start client
+uv run examples/website_client.py
+```
+
+### Webhook Example
+
+```bash
+# Terminal 1: Start server
+uv run examples/webhook_server.py --server-port 8000
+
+# Terminal 2: Start client
+uv run examples/webhook_client.py --server-port 8000 --webhook-port 8001
+```
+
+## Development Workflow
+
+<Steps>
+  <Step title="Start LocalStack">
+    ```bash
+    localstack start
+    ```
+  </Step>
+  
+  <Step title="Setup Resources">
+    ```bash
+    uv run examples/setup.py
+    ```
+  </Step>
+  
+  <Step title="Run Tests">
+    ```bash
+    uv run pytest tests/
+    ```
+  </Step>
+  
+  <Step title="Start Development">
+    ```bash
+    # Run your MCP server/client
+    uv run your_server.py
+    ```
+  </Step>
+</Steps>
+
+## Debugging Tips
+
+<AccordionGroup>
+  <Accordion title="View LocalStack logs">
+    ```bash
+    localstack logs -f
+    ```
+  </Accordion>
+  
+  <Accordion title="List created resources">
+    ```bash
+    # List SQS queues
+    aws --endpoint-url=http://localhost:4566 sqs list-queues
+    
+    # List SNS topics
+    aws --endpoint-url=http://localhost:4566 sns list-topics
+    ```
+  </Accordion>
+  
+  <Accordion title="Monitor queue messages">
+    ```bash
+    # Check queue depth
+    aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+      --queue-url http://localhost:4566/000000000000/mcp-requests \
+      --attribute-names ApproximateNumberOfMessages
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Environment Variables
+
+```bash
+# .env file for development
+AWS_ENDPOINT_URL=http://localhost:4566
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=test
+AWS_SECRET_ACCESS_KEY=test
+LOCALSTACK_HOST=localhost:4566
+```
+
+## Running Tests
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=asyncmcp --cov-report=html
+
+# Run specific markers
+uv run pytest -m unit
+uv run pytest -m integration
+
+# Run specific test module
+uv run pytest tests/sqs/test_integration.py
+
+# Run tests with specific markers
+uv run pytest -m integration
+uv run pytest -m unit
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run your first example
+  </Card>
+  
+  <Card title="Examples" icon="code" href="/examples/basic-examples">
+    Browse examples
+  </Card>
+</CardGroup>

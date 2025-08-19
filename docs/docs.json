@@ -1,0 +1,91 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "asyncmcp",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "favicon": "/favicon.png",
+  "colors": {
+    "primary": "#000000"
+  },
+  "appearance": {
+    "default": "dark",
+    "strict": false
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/bh-rat/asyncmcp"
+      }
+    ]
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Getting Started",
+        "pages": [
+          "introduction",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "concepts/overview"
+        ]
+      },
+      {
+        "group": "Transports",
+        "pages": [
+          "transports/sqs",
+          "transports/sns-sqs",
+          "transports/webhook",
+          "transports/streamable-http-webhook"
+        ]
+      },
+      {
+        "group": "Proxy",
+        "pages": [
+          "proxy"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/local-development"
+        ]
+      },
+      {
+        "group": "Examples",
+        "pages": [
+          "examples/basic-examples"
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/bh-rat/asyncmcp",
+      "x": "https://twitter.com/asyncmcp"
+    }
+  },
+  "seo": {
+    "metatags": {
+      "og:title": "asyncmcp Documentation",
+      "og:description": "Async transport layers for Model Context Protocol (MCP)",
+      "og:image": "/images/og-image.png",
+      "twitter:card": "summary_large_image"
+    }
+  },
+  "integrations": {
+    "ga4": {
+      "measurementId": "G-XXXXXXXXXX"
+    }
+  },
+  "search": {
+    "prompt": "Search asyncmcp docs..."
+  }
+}
