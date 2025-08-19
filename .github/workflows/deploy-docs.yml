@@ -45,10 +45,15 @@ jobs:
           timeout 30 mintlify dev --port 3000 &
           # Wait for server to start
           sleep 10
-          # Use wget to mirror the site
+          # Use wget to mirror the site with base path handling
           wget --mirror --convert-links --adjust-extension --page-requisites --no-parent http://localhost:3000 -P ./static
           # Move to expected location
           mv ./static/localhost:3000 ./out
+          # Fix base paths for GitHub Pages subpath deployment
+          find ./out -type f -name "*.html" -exec sed -i 's|href="/|href="/asyncmcp/|g' {} \;
+          find ./out -type f -name "*.html" -exec sed -i 's|src="/|src="/asyncmcp/|g' {} \;
+          find ./out -type f -name "*.js" -exec sed -i 's|"/api|"/asyncmcp/api|g' {} \;
+          find ./out -type f -name "*.js" -exec sed -i 's|"/_next|"/asyncmcp/_next|g' {} \;
         
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
