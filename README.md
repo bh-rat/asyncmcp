@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/bh-rat-asyncmcp-badge.png)](https://mseep.ai/app/bh-rat-asyncmcp)
+
 # asyncmcp - Async transport layers for MCP 
 
 
