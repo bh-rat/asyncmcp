@@ -88,4 +88,4 @@ Apache License 2.0 - see [LICENSE](LICENSE) file for details.
 
 - **Documentation**: [asyncmcp.mintlify.app](https://asyncmcp.mintlify.app)
 - **GitHub**: [github.com/bh-rat/asyncmcp](https://github.com/bh-rat/asyncmcp)
-- **MCP Specification**: [spec.modelcontextprotocol.io](https://spec.modelcontextprotocol.io)
+- **MCP Specification**: [modelcontextprotocol.io/specification/2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25)
