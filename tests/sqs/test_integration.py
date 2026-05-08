@@ -48,7 +48,9 @@ class TestSQSIntegrationWithDynamicQueues:
                                         "protocolVersion": "2024-11-05",
                                         "capabilities": {},
                                         "clientInfo": {"name": "test-client", "version": "1.0"},
-                                        "response_queue_url": client_response_queue,
+                                        "_meta": {
+                                            "responseQueueUrl": client_response_queue,
+                                        },
                                     },
                                 }
                             ),
@@ -285,7 +287,9 @@ class TestSQSIntegrationWithDynamicQueues:
                             "protocolVersion": "2024-11-05",
                             "capabilities": {},
                             "clientInfo": {"name": "client-1", "version": "1.0"},
-                            "response_queue_url": client1_response_queue,
+                            "_meta": {
+                                "responseQueueUrl": client1_response_queue,
+                            },
                         },
                     }
                 ),
@@ -303,7 +307,9 @@ class TestSQSIntegrationWithDynamicQueues:
                             "protocolVersion": "2024-11-05",
                             "capabilities": {},
                             "clientInfo": {"name": "client-2", "version": "1.0"},
-                            "response_queue_url": client2_response_queue,
+                            "_meta": {
+                                "responseQueueUrl": client2_response_queue,
+                            },
                         },
                     }
                 ),
@@ -359,7 +365,7 @@ class TestSQSIntegrationWithDynamicQueues:
                         "protocolVersion": "2024-11-05",
                         "capabilities": {},
                         "clientInfo": {"name": "invalid-client", "version": "1.0"},
-                        # Missing response_queue_url
+                        # Missing responseQueueUrl in _meta
                     },
                 }
             ),
@@ -378,7 +384,7 @@ class TestSQSIntegrationWithDynamicQueues:
             async with session_manager.run():
                 await anyio.sleep(0.2)  # Let it process the invalid message
 
-                # Session should not be created due to missing response_queue_url
+                # Session should not be created due to missing responseQueueUrl
                 stats = session_manager.get_all_sessions()
                 # The invalid message should be handled gracefully without creating a session
 
@@ -404,7 +410,9 @@ class TestSQSIntegrationWithDynamicQueues:
                         "protocolVersion": "2024-11-05",
                         "capabilities": {},
                         "clientInfo": {"name": "cleanup-client", "version": "1.0"},
-                        "response_queue_url": "http://localhost:4566/000000000000/cleanup-responses",
+                        "_meta": {
+                            "responseQueueUrl": "http://localhost:4566/000000000000/cleanup-responses",
+                        },
                     },
                 }
             ),
@@ -615,7 +623,9 @@ class TestSQSValidationScenarios:
                         "protocolVersion": "2024-11-05",
                         "capabilities": {},
                         "clientInfo": {"name": "test-client", "version": "1.0"},
-                        "response_queue_url": "http://localhost:4566/000000000000/responses",
+                        "_meta": {
+                            "responseQueueUrl": "http://localhost:4566/000000000000/responses",
+                        },
                     },
                 }
             ),

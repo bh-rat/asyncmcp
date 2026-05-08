@@ -2,6 +2,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+from mcp import types
+
 
 @dataclass
 class SqsServerConfig:
@@ -46,3 +48,19 @@ class SqsClientConfig:
         """Initialize client_id if not provided."""
         if self.client_id is None:
             self.client_id = str(uuid.uuid4())
+
+
+def extract_response_queue_url_from_meta(message: types.JSONRPCMessage) -> str | None:
+    """Extract response queue URL from the _meta field of an MCP message."""
+    if not isinstance(message.root, types.JSONRPCRequest):
+        return None
+
+    params = message.root.params
+    if not isinstance(params, dict):
+        return None
+
+    meta = params.get("_meta")
+    if not isinstance(meta, dict):
+        return None
+
+    return meta.get("responseQueueUrl")

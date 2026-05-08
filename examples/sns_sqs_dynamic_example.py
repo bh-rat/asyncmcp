@@ -9,7 +9,7 @@ This example demonstrates:
 3. Dynamic session creation and management
 4. Multiple concurrent clients supported
 
-The client provides a 'client_topic_arn' parameter in the initialize request,
+The client provides a 'clientTopicArn' in the _meta field of the initialize request,
 and the server creates a dedicated session for each client.
 """
 
@@ -110,7 +110,7 @@ async def run_server():
 
     print("🚀 Starting SNS/SQS server with dynamic topic support...")
     print(f"📡 Listening on queue: {SERVER_REQUEST_QUEUE}")
-    print("📝 Send initialize request with 'client_topic_arn' parameter to start a session")
+    print("📝 Send initialize request with 'clientTopicArn' in _meta field to start a session")
 
     async with session_manager.run():
         try:
@@ -161,7 +161,9 @@ async def run_client():
                     "capabilities": {},
                     "clientInfo": {"name": "sns-sqs-test-client", "version": "1.0"},
                     # Client provides its own topic ARN for responses
-                    "client_topic_arn": CLIENT_TOPIC,
+                    "_meta": {
+                        "clientTopicArn": CLIENT_TOPIC,
+                    },
                 },
             )
         )

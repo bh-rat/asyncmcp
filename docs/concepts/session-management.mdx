@@ -98,7 +98,7 @@ def generate_session_id() -> str:
     },
     "_meta": {
       "session_id": "mcp_20240315143022_a1b2c3d4",
-      "response_queue_url": "https://sqs.../client-queue"
+      "responseQueueUrl": "https://sqs.../client-queue"
     }
   }
 }
@@ -219,9 +219,10 @@ Each transport discovers client endpoints differently:
 <AccordionGroup>
   <Accordion title="SQS Transport">
     ```python
-    # Client provides response queue URL in initialize
-    def extract_response_endpoint(self, initialize_params: dict) -> str:
-        return initialize_params.get('response_queue_url')
+    # Client provides response queue URL in the initialize request's _meta field
+    def extract_response_endpoint(self, initialize_params: dict) -> str | None:
+        meta = initialize_params.get('_meta') or {}
+        return meta.get('responseQueueUrl')
     
     # Or use dynamic queue creation
     async def create_response_queue(self, session_id: str) -> str:

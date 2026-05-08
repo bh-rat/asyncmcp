@@ -3,7 +3,8 @@ Integration tests for SNS/SQS transport functionality.
 """
 
 import json
-from unittest.mock import MagicMock
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import pytest
@@ -550,3 +551,161 @@ class TestSNSSQSValidationScenarios:
                 await anyio.sleep(0.2)
                 # Malformed message should be deleted after parsing failure
                 mock_sqs.delete_message.assert_called_once()
+
+
+def _make_init_sqs_message(
+    message_id: str,
+    receipt_handle: str,
+    client_id: str,
+    client_topic_arn: str | None,
+    request_id: int = 1,
+) -> dict:
+    """Build a fake SQS message carrying an MCP initialize request."""
+    params: dict = {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {},
+        "clientInfo": {"name": client_id, "version": "1.0"},
+    }
+    if client_topic_arn is not None:
+        params["_meta"] = {"clientTopicArn": client_topic_arn}
+    return {
+        "MessageId": message_id,
+        "ReceiptHandle": receipt_handle,
+        "Body": json.dumps({"jsonrpc": "2.0", "id": request_id, "method": "initialize", "params": params}),
+        "MessageAttributes": {"Method": {"DataType": "String", "StringValue": "initialize"}},
+    }
+
+
+def _patched_transport_factory():
+    """Drop-in replacement for SnsSqsTransport that satisfies the manager's contract."""
+
+    def factory(*args, **kwargs):
+        transport = MagicMock()
+        transport.is_terminated = False
+        transport.client_topic_arn = kwargs.get("client_topic_arn")
+        transport.send_message = AsyncMock()
+        transport.send_to_client_topic = AsyncMock()
+        transport.send_error_to_client_topic = AsyncMock()
+
+        @asynccontextmanager
+        async def _connect():
+            yield (MagicMock(), MagicMock())
+
+        transport.connect = _connect
+        return transport
+
+    return factory
+
+
+class TestSnsSqsDynamicInitFlow:
+    """End-to-end tests for the dynamic initialize handshake using `_meta.clientTopicArn`."""
+
+    @pytest.mark.anyio
+    async def test_initialize_with_client_topic_arn_creates_session(self, server_config, mock_mcp_server):
+        """An initialize request with `clientTopicArn` in `_meta` constructs a transport for that topic."""
+        client_topic_arn = "arn:aws:sns:us-east-1:000000000000:client-1-topic"
+        mock_sqs = MagicMock()
+        mock_sns = MagicMock()
+        init_message = _make_init_sqs_message(
+            "init-1", "init-handle-1", "test-client", client_topic_arn=client_topic_arn
+        )
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return {"Messages": [init_message]} if call_count == 1 else {"Messages": []}
+
+        mock_sqs.receive_message.side_effect = receive_side_effect
+        mock_sqs.delete_message.return_value = {}
+
+        with patch(
+            "asyncmcp.sns_sqs.manager.SnsSqsTransport", side_effect=_patched_transport_factory()
+        ) as mock_transport_cls:
+            session_manager = SnsSqsSessionManager(
+                app=mock_mcp_server, config=server_config, sqs_client=mock_sqs, sns_client=mock_sns
+            )
+
+            with anyio.move_on_after(0.5):
+                async with session_manager.run():
+                    await anyio.sleep(0.2)
+
+        assert mock_transport_cls.call_count == 1
+        assert mock_transport_cls.call_args.kwargs["client_topic_arn"] == client_topic_arn
+        assert mock_sqs.delete_message.called
+
+    @pytest.mark.anyio
+    async def test_initialize_missing_meta_skips_session_creation(self, server_config, mock_mcp_server):
+        """An initialize request without `_meta` is acked but does not create a session."""
+        mock_sqs = MagicMock()
+        mock_sns = MagicMock()
+        init_message = _make_init_sqs_message(
+            "bad-init-1", "bad-init-handle-1", "invalid-client", client_topic_arn=None
+        )
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return {"Messages": [init_message]} if call_count == 1 else {"Messages": []}
+
+        mock_sqs.receive_message.side_effect = receive_side_effect
+        mock_sqs.delete_message.return_value = {}
+
+        with patch(
+            "asyncmcp.sns_sqs.manager.SnsSqsTransport", side_effect=_patched_transport_factory()
+        ) as mock_transport_cls:
+            session_manager = SnsSqsSessionManager(
+                app=mock_mcp_server, config=server_config, sqs_client=mock_sqs, sns_client=mock_sns
+            )
+
+            with anyio.move_on_after(0.5):
+                async with session_manager.run():
+                    await anyio.sleep(0.2)
+
+        mock_transport_cls.assert_not_called()
+        assert mock_sqs.delete_message.called
+        mock_sns.publish.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_multiple_clients_get_isolated_topic_arns(self, server_config, mock_mcp_server):
+        """Two distinct initialize requests yield two transports with their own client topic ARNs."""
+        client1_arn = "arn:aws:sns:us-east-1:000000000000:client-1-topic"
+        client2_arn = "arn:aws:sns:us-east-1:000000000000:client-2-topic"
+        mock_sqs = MagicMock()
+        mock_sns = MagicMock()
+        init1 = _make_init_sqs_message("init-1", "init-1-handle", "client-1", client_topic_arn=client1_arn)
+        init2 = _make_init_sqs_message(
+            "init-2", "init-2-handle", "client-2", client_topic_arn=client2_arn, request_id=2
+        )
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"Messages": [init1]}
+            if call_count == 2:
+                return {"Messages": [init2]}
+            return {"Messages": []}
+
+        mock_sqs.receive_message.side_effect = receive_side_effect
+        mock_sqs.delete_message.return_value = {}
+
+        with patch(
+            "asyncmcp.sns_sqs.manager.SnsSqsTransport", side_effect=_patched_transport_factory()
+        ) as mock_transport_cls:
+            session_manager = SnsSqsSessionManager(
+                app=mock_mcp_server, config=server_config, sqs_client=mock_sqs, sns_client=mock_sns
+            )
+
+            with anyio.move_on_after(0.7):
+                async with session_manager.run():
+                    await anyio.sleep(0.3)
+
+        assert mock_transport_cls.call_count == 2
+        captured_arns = [call.kwargs["client_topic_arn"] for call in mock_transport_cls.call_args_list]
+        assert sorted(captured_arns) == sorted([client1_arn, client2_arn])

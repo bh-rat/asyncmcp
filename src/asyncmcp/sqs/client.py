@@ -48,14 +48,16 @@ class SqsClientTransport(BaseClientTransport):
         return attrs
 
     async def _prepare_initialize_request(self, session_message: SessionMessage) -> str:
-        """Prepare initialize request with response_queue_url in params."""
+        """Prepare initialize request with responseQueueUrl in _meta field."""
         if not self._is_initialization_request(session_message.message):
             return session_message.message.model_dump_json(by_alias=True, exclude_none=True)
 
         message_dict = session_message.message.model_dump(by_alias=True, exclude_none=True)
         if "params" not in message_dict:
             message_dict["params"] = {}
-        message_dict["params"]["response_queue_url"] = self.config.response_queue_url
+        if "_meta" not in message_dict["params"]:
+            message_dict["params"]["_meta"] = {}
+        message_dict["params"]["_meta"]["responseQueueUrl"] = self.config.response_queue_url
         return json.dumps(message_dict)
 
     async def send_message(self, session_message: SessionMessage) -> None:

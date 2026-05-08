@@ -9,7 +9,6 @@ from uuid import uuid4
 import anyio
 import anyio.lowlevel
 import anyio.to_thread
-import mcp.types as types
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp import JSONRPCError
@@ -30,7 +29,7 @@ from asyncmcp.common.utils import (
     validate_session_id,
 )
 from asyncmcp.sqs.server import OutgoingMessageEvent, SqsTransport
-from asyncmcp.sqs.utils import SqsServerConfig
+from asyncmcp.sqs.utils import SqsServerConfig, extract_response_queue_url_from_meta
 
 logger = logging.getLogger(__name__)
 
@@ -235,14 +234,10 @@ class SqsSessionManager:
             await transport.send_message(session_message)
             return
 
-        response_queue_url = None
-        message_root = session_message.message.root
-        if isinstance(message_root, types.JSONRPCRequest) and message_root.params:
-            if isinstance(message_root.params, dict):
-                response_queue_url = message_root.params.get("response_queue_url")
+        response_queue_url = extract_response_queue_url_from_meta(session_message.message)
 
         if not response_queue_url:
-            logger.error("Initialize request missing required 'response_queue_url' parameter")
+            logger.error("Initialize request missing required 'responseQueueUrl' in _meta field")
             await delete_sqs_message(self.sqs_client, self.config.read_queue_url, sqs_message["ReceiptHandle"])
             return
 
