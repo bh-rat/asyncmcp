@@ -9,7 +9,6 @@ from uuid import uuid4
 import anyio
 import anyio.lowlevel
 import anyio.to_thread
-import mcp.types as types
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.server.lowlevel.server import Server as MCPServer
@@ -29,7 +28,7 @@ from asyncmcp.common.utils import (
     validate_session_id,
 )
 from asyncmcp.sns_sqs.server import OutgoingMessageEvent, SnsSqsTransport
-from asyncmcp.sns_sqs.utils import SnsSqsServerConfig
+from asyncmcp.sns_sqs.utils import SnsSqsServerConfig, extract_client_topic_arn_from_meta
 
 logger = logging.getLogger(__name__)
 
@@ -259,14 +258,10 @@ class SnsSqsSessionManager:
             await transport.send_message(session_message)
             return
 
-        client_topic_arn = None
-        message_root = session_message.message.root
-        if isinstance(message_root, types.JSONRPCRequest) and message_root.params:
-            if isinstance(message_root.params, dict):
-                client_topic_arn = message_root.params.get("client_topic_arn")
+        client_topic_arn = extract_client_topic_arn_from_meta(session_message.message)
 
         if not client_topic_arn:
-            logger.error("Initialize request missing required 'client_topic_arn' parameter")
+            logger.error("Initialize request missing required 'clientTopicArn' in _meta field")
             await delete_sqs_message(self.sqs_client, self.config.sqs_queue_url, sqs_message["ReceiptHandle"])
             return
 

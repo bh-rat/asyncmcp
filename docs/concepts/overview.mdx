@@ -76,16 +76,18 @@ asyncmcp implements custom initialization protocols to establish async transport
 
 <Tabs>
   <Tab title="SQS">
-    The client includes its response queue URL in the initialize request:
+    The client includes its response queue URL in the initialize request's `_meta` field:
     ```json
     {
       "jsonrpc": "2.0",
       "method": "initialize",
       "params": {
-        "response_queue_url": "https://sqs.region.amazonaws.com/account/client-responses",
         "clientInfo": {
           "name": "example-client",
           "version": "1.0.0"
+        },
+        "_meta": {
+          "responseQueueUrl": "https://sqs.region.amazonaws.com/account/client-responses"
         }
       }
     }
@@ -94,16 +96,18 @@ asyncmcp implements custom initialization protocols to establish async transport
   </Tab>
   
   <Tab title="SNS+SQS">
-    The client provides its SNS topic ARN for response routing:
+    The client provides its SNS topic ARN for response routing in the initialize request's `_meta` field:
     ```json
     {
       "jsonrpc": "2.0",
       "method": "initialize",
       "params": {
-        "client_topic_arn": "arn:aws:sns:region:account:client-topic",
         "clientInfo": {
           "name": "example-client",
           "version": "1.0.0"
+        },
+        "_meta": {
+          "clientTopicArn": "arn:aws:sns:region:account:client-topic"
         }
       }
     }

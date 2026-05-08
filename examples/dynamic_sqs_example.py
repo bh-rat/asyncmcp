@@ -86,7 +86,7 @@ async def run_server():
 
     print("🚀 Starting SQS server with dynamic queue support...")
     print(f"📡 Listening on: {SERVER_REQUEST_QUEUE}")
-    print("📝 Send initialize request with 'response_queue_url' parameter to start a session")
+    print("📝 Send initialize request with 'responseQueueUrl' in _meta field to start a session")
 
     async with session_manager.run():
         try:
@@ -160,7 +160,9 @@ async def run_client():
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"roots": {"listChanged": False}, "sampling": {}},
                     "clientInfo": {"name": "dynamic-example-client", "version": "1.0.0"},
-                    "response_queue_url": CLIENT_RESPONSE_QUEUE,  # Tell server where to send responses
+                    "_meta": {
+                        "responseQueueUrl": CLIENT_RESPONSE_QUEUE,  # Tell server where to send responses
+                    }
                 },
             )
         )

@@ -25,7 +25,7 @@ def sample_jsonrpc_request():
 
 @pytest.fixture
 def sample_jsonrpc_initialize_request():
-    """Sample JSON-RPC initialize request with response_queue_url."""
+    """Sample JSON-RPC initialize request with responseQueueUrl in _meta."""
     return JSONRPCMessage(
         root=JSONRPCRequest(
             jsonrpc="2.0",
@@ -35,7 +35,9 @@ def sample_jsonrpc_initialize_request():
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
                 "clientInfo": {"name": "test-client", "version": "1.0"},
-                "response_queue_url": "http://localhost:4566/000000000000/client-responses",
+                "_meta": {
+                    "responseQueueUrl": "http://localhost:4566/000000000000/client-responses",
+                },
             },
         )
     )
@@ -66,7 +68,7 @@ def sample_sqs_message():
 
 @pytest.fixture
 def sample_initialize_sqs_message():
-    """Sample SQS initialize message with response_queue_url."""
+    """Sample SQS initialize message with responseQueueUrl in _meta."""
     return {
         "MessageId": "init-msg-1",
         "ReceiptHandle": "init-handle-1",
@@ -79,7 +81,9 @@ def sample_initialize_sqs_message():
                     "protocolVersion": "2024-11-05",
                     "capabilities": {},
                     "clientInfo": {"name": "test-client", "version": "1.0"},
-                    "response_queue_url": "http://localhost:4566/000000000000/client-responses",
+                    "_meta": {
+                        "responseQueueUrl": "http://localhost:4566/000000000000/client-responses",
+                    },
                 },
             }
         ),

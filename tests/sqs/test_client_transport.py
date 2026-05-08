@@ -63,15 +63,16 @@ class TestSqsClient:
                 # Verify send_message was called
                 assert mock_sqs_client.send_message.called
 
-                # Get the call arguments to verify response_queue_url was added
+                # Get the call arguments to verify responseQueueUrl was added in _meta
                 call_args = mock_sqs_client.send_message.call_args
                 message_body = call_args[1]["MessageBody"]
 
-                # Parse the message body and check it contains response_queue_url
+                # Parse the message body and check it contains responseQueueUrl in _meta
                 parsed_message = json.loads(message_body)
                 assert "params" in parsed_message
-                assert "response_queue_url" in parsed_message["params"]
-                assert parsed_message["params"]["response_queue_url"] == client_response_queue_url
+                assert "_meta" in parsed_message["params"]
+                assert "responseQueueUrl" in parsed_message["params"]["_meta"]
+                assert parsed_message["params"]["_meta"]["responseQueueUrl"] == client_response_queue_url
 
     @pytest.mark.anyio
     async def test_client_send_regular_request(
@@ -96,11 +97,11 @@ class TestSqsClient:
                 # Verify send_message was called
                 assert mock_sqs_client.send_message.called
 
-                # Regular requests should not have response_queue_url added
+                # Regular requests should not have responseQueueUrl added
                 call_args = mock_sqs_client.send_message.call_args
                 message_body = call_args[1]["MessageBody"]
                 parsed_message = json.loads(message_body)
-                # Should be the original message without response_queue_url added
+                # Should be the original message without responseQueueUrl added
                 assert parsed_message["method"] == "test/method"
 
     @pytest.mark.anyio

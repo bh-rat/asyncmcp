@@ -110,7 +110,9 @@ The initialize request includes the client's response queue URL:
     "protocolVersion": "2024-11-05",
     "capabilities": {},
     "clientInfo": {"name": "test-client", "version": "1.0"},
-    "response_queue_url": "http://localhost:4566/000000000000/mcp-consumer"
+    "_meta": {
+      "responseQueueUrl": "http://localhost:4566/000000000000/mcp-consumer"
+    }
   }
 }
 ```

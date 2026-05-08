@@ -6,6 +6,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+from mcp import types
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,3 +49,19 @@ class SnsSqsClientConfig:
             raise ValueError("sqs_queue_url is required for client configuration")
         if not self.sns_topic_arn:
             raise ValueError("sns_topic_arn is required for client configuration")
+
+
+def extract_client_topic_arn_from_meta(message: types.JSONRPCMessage) -> str | None:
+    """Extract client topic ARN from the _meta field of an MCP message."""
+    if not isinstance(message.root, types.JSONRPCRequest):
+        return None
+
+    params = message.root.params
+    if not isinstance(params, dict):
+        return None
+
+    meta = params.get("_meta")
+    if not isinstance(meta, dict):
+        return None
+
+    return meta.get("clientTopicArn")
